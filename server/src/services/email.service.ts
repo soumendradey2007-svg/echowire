@@ -9,7 +9,8 @@ export class EmailService {
       return false;
     }
 
-    const verifyUrl = `http://localhost:8443?verify_token=${token}`;
+    const baseUrl = config.clientOrigin ? config.clientOrigin.replace(/\/$/, '') : 'https://echowire.vercel.app';
+    const verifyUrl = `${baseUrl}?verify_token=${token}`;
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #09090b; color: #f4f4f5; padding: 40px 20px; text-align: center;">

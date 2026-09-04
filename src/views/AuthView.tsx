@@ -174,20 +174,6 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
             We sent a verification link to <span className="text-zinc-200 font-medium">{emailSentTo}</span>.<br />
             Click the link in your email to activate your account.
           </p>
-          {devVerifyUrl && (
-            <div className="mb-6 p-3.5 bg-zinc-900 border border-zinc-800 rounded text-left">
-              <p className="text-xs text-zinc-400 mb-2">
-                <span className="text-accent font-medium">Instant Dev Shortcut:</span> In local development, click below to verify immediately:
-              </p>
-              <button
-                type="button"
-                onClick={() => handleInstantVerify()}
-                className="w-full text-center bg-accent text-white hover:bg-accent/90 text-xs font-medium py-2 rounded transition-colors cursor-pointer"
-              >
-                Verify Account Instantly
-              </button>
-            </div>
-          )}
           <button onClick={() => { setEmailSentTo(null); onModeChange('signin'); }} className={btnCls}>
             Back to Sign in
           </button>
