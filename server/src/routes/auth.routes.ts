@@ -159,7 +159,6 @@ export async function authRoutes(app: FastifyInstance) {
           return {
             success: true,
             requiresVerification: true,
-            devVerifyUrl,
             message: 'A fresh confirmation email has been sent to your inbox.',
           };
         }
@@ -191,7 +190,6 @@ export async function authRoutes(app: FastifyInstance) {
       return {
         success: true,
         requiresVerification: true,
-        devVerifyUrl,
         message: 'A confirmation email has been sent to your inbox. Please check your email to activate your account.',
       };
     } catch (err: any) {
@@ -228,7 +226,6 @@ export async function authRoutes(app: FastifyInstance) {
         }
         return reply.status(403).send({
           error: 'Please check your email and verify your account before signing in.',
-          devVerifyUrl: devVerifyUrl || undefined,
         });
       }
 

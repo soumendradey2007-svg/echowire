@@ -19,7 +19,6 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
-  const [devVerifyUrl, setDevVerifyUrl] = useState<string | null>(null);
   const [verifyStatus, setVerifyStatus] = useState<string | null>(null);
 
   const [guestName, setGuestName] = useState('');
@@ -80,25 +79,6 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     'w-full bg-accent text-white text-sm font-medium py-2.5 rounded hover:bg-accent/90 transition-colors cursor-pointer disabled:opacity-50';
   const linkCls = 'text-accent text-sm hover:underline cursor-pointer';
 
-  const handleInstantVerify = async (urlToUse?: string) => {
-    const url = urlToUse || devVerifyUrl;
-    if (!url) return;
-    setLoading(true);
-    try {
-      const parsed = new URL(url, window.location.origin);
-      const token = parsed.searchParams.get('verify_token');
-      if (token) {
-        await apiFetch(`/api/auth/verify?token=${token}`);
-        setVerifyStatus('success');
-        setTimeout(() => onAuth(), 800);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Instant verification failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleRegister = async () => {
     setError(null);
     if (!username.trim()) return setError('Please enter a username');
@@ -114,9 +94,6 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         method: 'POST',
         body: JSON.stringify({ username, email, password }),
       });
-      if (res.devVerifyUrl) {
-        setDevVerifyUrl(res.devVerifyUrl);
-      }
       if (res.requiresVerification) {
         setEmailSentTo(email);
       } else {
