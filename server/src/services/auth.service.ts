@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { db } from '../db';
 import { users, sessions } from '../db/schema';
 import { eq, and, gt } from 'drizzle-orm';
+import { config } from '../config';
 
 export class AuthService {
   static async hashPassword(password: string): Promise<string> {
@@ -19,6 +20,29 @@ export class AuthService {
 
   static hashToken(rawToken: string): string {
     return crypto.createHash('sha256').update(rawToken).digest('hex');
+  }
+
+  static extractToken(req: any): string | undefined {
+    // 1. Bearer token in Authorization header
+    const authHeader = req?.headers?.authorization || req?.headers?.Authorization;
+    if (authHeader && typeof authHeader === 'string') {
+      const parts = authHeader.split(' ');
+      if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+        return parts[1].trim();
+      }
+      if (parts.length === 1 && parts[0].length >= 16) {
+        return parts[0].trim();
+      }
+    }
+    // 2. Cookie
+    if (req?.cookies && req.cookies[config.cookieName]) {
+      return req.cookies[config.cookieName];
+    }
+    // 3. Query param fallback (e.g. ?token=...)
+    if (req?.query && typeof req.query === 'object' && req.query.token) {
+      return String(req.query.token);
+    }
+    return undefined;
   }
 
   static async createSession(userId: string, userAgent?: string, ipAddress?: string): Promise<{ rawToken: string; expiresAt: Date }> {
@@ -60,6 +84,12 @@ export class AuthService {
     return { session: sessionRecord, user: userRecord };
   }
 
+  static async validateSessionFromRequest(req: any) {
+    const token = this.extractToken(req);
+    if (!token) return null;
+    return await this.validateSession(token);
+  }
+
   static async revokeSession(sessionId: string, userId: string): Promise<boolean> {
     await db
       .delete(sessions)
@@ -77,3 +107,4 @@ export class AuthService {
     return true;
   }
 }
+

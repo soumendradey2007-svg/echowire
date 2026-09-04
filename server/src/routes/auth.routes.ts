@@ -8,7 +8,18 @@ export function getUserTag(user: { id: string; email?: string | null }): string 
   return String((num % 9000) + 1000);
 }
 
-﻿import type { FastifyInstance } from 'fastify';
+function getCookieOptions(expiresAt: Date) {
+  const isProd = config.env === 'production' || process.env.NODE_ENV === 'production';
+  return {
+    path: '/',
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? ('none' as const) : ('lax' as const),
+    expires: expiresAt,
+  };
+}
+
+import type { FastifyInstance } from 'fastify';
 import { RegisterSchema, LoginSchema, UpdateProfileSchema, ChangePasswordSchema } from '../shared/validators';
 import { AuthService } from '../services/auth.service';
 import { RateLimiter } from '../services/rate-limit.service';
@@ -44,15 +55,10 @@ export async function authRoutes(app: FastifyInstance) {
 
       const { rawToken, expiresAt } = await AuthService.createSession(newUser.id, req.headers['user-agent'], req.ip);
 
-      reply.setCookie(config.cookieName, rawToken, {
-        path: '/',
-        httpOnly: true,
-        secure: config.env === 'production',
-        sameSite: 'lax',
-        expires: expiresAt,
-      });
+      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
 
       return {
+        token: rawToken,
         user: {
           id: newUser.id,
           username: newUser.username,
@@ -125,16 +131,11 @@ export async function authRoutes(app: FastifyInstance) {
         req.ip
       );
 
-      reply.setCookie(config.cookieName, rawToken, {
-        path: '/',
-        httpOnly: true,
-        secure: config.env === 'production',
-        sameSite: 'lax',
-        expires: expiresAt,
-      });
+      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
 
       const tag = getUserTag(existingUser);
       return {
+        token: rawToken,
         user: {
           id: existingUser.id,
           username: existingUser.username,
@@ -182,15 +183,29 @@ export async function authRoutes(app: FastifyInstance) {
 
       const { rawToken, expiresAt } = await AuthService.createSession(user.id, req.headers['user-agent'], req.ip);
 
-      reply.setCookie(config.cookieName, rawToken, {
-        path: '/',
-        httpOnly: true,
-        secure: config.env === 'production',
-        sameSite: 'lax',
-        expires: expiresAt,
-      });
+      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
 
-      return { success: true, message: 'Email verified successfully!' };
+      const tag = getUserTag(user);
+      const isGuest = user.email ? (user.email.endsWith('@guest.echowire.local') || user.email.startsWith('guest_')) : false;
+
+      return {
+        success: true,
+        message: 'Email verified successfully!',
+        token: rawToken,
+        user: {
+          id: user.id,
+          username: user.username,
+          tag,
+          userTag: `${user.username}#${tag}`,
+          isGuest,
+          email: user.email,
+          avatarUrl: user.avatarUrl,
+          bio: user.bio,
+          status: user.status,
+          isEmailVerified: true,
+          createdAt: user.createdAt.toISOString(),
+        },
+      };
     } catch (err: any) {
       return reply.status(500).send({ error: err.message || 'Verification failed' });
     }
@@ -312,17 +327,12 @@ export async function authRoutes(app: FastifyInstance) {
 
       const { rawToken, expiresAt } = await AuthService.createSession(user.id, req.headers['user-agent'], ip);
 
-      reply.setCookie(config.cookieName, rawToken, {
-        path: '/',
-        httpOnly: true,
-        secure: config.env === 'production',
-        sameSite: 'lax',
-        expires: expiresAt,
-      });
+      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
 
       const tag = getUserTag(user);
       const isGuest = user.email.endsWith('@guest.echowire.local');
       return {
+        token: rawToken,
         user: {
           id: user.id,
           username: user.username,
@@ -346,14 +356,19 @@ export async function authRoutes(app: FastifyInstance) {
   // Logout Endpoint
   app.post('/api/auth/logout', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (token) {
         const auth = await AuthService.validateSession(token);
         if (auth) {
           await AuthService.revokeSession(auth.session.id, auth.user.id);
         }
       }
-      reply.clearCookie(config.cookieName, { path: '/' });
+      const isProd = config.env === 'production' || process.env.NODE_ENV === 'production';
+      reply.clearCookie(config.cookieName, {
+        path: '/',
+        secure: isProd,
+        sameSite: isProd ? 'none' : 'lax',
+      });
       return { success: true };
     } catch (err: any) {
       return reply.status(500).send({ error: err.message || 'Logout failed' });
@@ -363,7 +378,7 @@ export async function authRoutes(app: FastifyInstance) {
   // Me Endpoint
   app.get('/api/auth/me', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Invalid or expired session' });
@@ -393,7 +408,7 @@ export async function authRoutes(app: FastifyInstance) {
   // Profile Update
   app.patch('/api/auth/profile', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -425,7 +440,7 @@ export async function authRoutes(app: FastifyInstance) {
   // Password Update
   app.post('/api/auth/password', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -446,7 +461,7 @@ export async function authRoutes(app: FastifyInstance) {
   // Sessions List
   app.get('/api/auth/sessions', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -471,7 +486,7 @@ export async function authRoutes(app: FastifyInstance) {
   // Revoke Session
   app.delete('/api/auth/sessions/:id', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -487,16 +502,22 @@ export async function authRoutes(app: FastifyInstance) {
   // Delete Account
   app.delete('/api/auth/delete', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
 
       await db.delete(users).where(eq(users.id, auth.user.id));
-      reply.clearCookie(config.cookieName, { path: '/' });
+      const isProd = config.env === 'production' || process.env.NODE_ENV === 'production';
+      reply.clearCookie(config.cookieName, {
+        path: '/',
+        secure: isProd,
+        sameSite: isProd ? 'none' : 'lax',
+      });
       return { success: true };
     } catch (err: any) {
       return reply.status(500).send({ error: err.message || 'Failed to delete account' });
     }
   });
 }
+

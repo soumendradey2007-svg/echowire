@@ -9,7 +9,7 @@ import { config } from '../config';
 export async function friendRoutes(app: FastifyInstance) {
   app.get('/api/friends', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -74,7 +74,7 @@ export async function friendRoutes(app: FastifyInstance) {
 
   app.post('/api/friends/requests', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -131,7 +131,7 @@ export async function friendRoutes(app: FastifyInstance) {
 
   app.post('/api/friends/:id/accept', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -150,7 +150,7 @@ export async function friendRoutes(app: FastifyInstance) {
 
   app.post('/api/friends/:id/reject', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -165,7 +165,7 @@ export async function friendRoutes(app: FastifyInstance) {
 
   app.delete('/api/friends/:id', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });

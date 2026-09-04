@@ -38,7 +38,7 @@ export async function roomRoutes(app: FastifyInstance) {
   // GET /api/rooms - List only rooms relevant to the authenticated user
   app.get('/api/rooms', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -146,7 +146,7 @@ export async function roomRoutes(app: FastifyInstance) {
   // POST /api/rooms - Create a custom room
   app.post('/api/rooms', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -180,7 +180,7 @@ export async function roomRoutes(app: FastifyInstance) {
   // POST /api/rooms/:id/join - Join a room
   app.post('/api/rooms/:id/join', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -266,7 +266,7 @@ export async function roomRoutes(app: FastifyInstance) {
   // POST /api/rooms/:id/leave - Leave a room
   app.post('/api/rooms/:id/leave', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -275,8 +275,12 @@ export async function roomRoutes(app: FastifyInstance) {
       const isGuest = auth.user.email?.endsWith('@guest.echowire.local');
       if (isGuest) {
         await db.delete(roomMembers).where(eq(roomMembers.userId, auth.user.id));
-        await db.delete(users).where(eq(users.id, auth.user.id));
-        reply.clearCookie(config.cookieName, { path: '/' });
+        const isProd = config.env === 'production' || process.env.NODE_ENV === 'production';
+        reply.clearCookie(config.cookieName, {
+          path: '/',
+          secure: isProd,
+          sameSite: isProd ? 'none' : 'lax',
+        });
         WsGateway.broadcast('room:member_left', { roomId: id, userId: auth.user.id });
         WsGateway.broadcast('voice:peer_left', { roomId: id, userId: auth.user.id });
         return { success: true, guestEnded: true };
@@ -301,7 +305,7 @@ export async function roomRoutes(app: FastifyInstance) {
   // DELETE /api/rooms/:id - Delete a room (only owner can delete)
   app.delete('/api/rooms/:id', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -333,7 +337,7 @@ export async function roomRoutes(app: FastifyInstance) {
   // GET /api/rooms/invites - List active invites for current user
   app.get('/api/rooms/invites', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
@@ -354,7 +358,7 @@ export async function roomRoutes(app: FastifyInstance) {
   // POST /api/rooms/invites - Create and send a room invite
   app.post('/api/rooms/invites', async (req, reply) => {
     try {
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });

@@ -6,7 +6,7 @@ import { IconEye, IconEyeOff } from '../components/Icons';
 interface Props {
   mode: AuthMode;
   onModeChange: (m: AuthMode) => void;
-  onAuth: () => void;
+  onAuth: (user?: any) => void;
 }
 
 export default function AuthView({ mode, onModeChange, onAuth }: Props) {
@@ -20,6 +20,7 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
   const [loading, setLoading] = useState(false);
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [verifyStatus, setVerifyStatus] = useState<string | null>(null);
+  const [verifiedUser, setVerifiedUser] = useState<any>(null);
 
   const [guestName, setGuestName] = useState('');
   const [isGuestMode, setIsGuestMode] = useState(false);
@@ -42,11 +43,11 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     }
     setLoading(true);
     try {
-      await apiFetch('/api/auth/guest', {
+      const res = await apiFetch('/api/auth/guest', {
         method: 'POST',
         body: JSON.stringify({ username: guestName.trim() }),
       });
-      onAuth();
+      onAuth(res?.user);
     } catch (err: any) {
       setError(err.message || 'Failed to enter as guest');
     } finally {
@@ -60,10 +61,13 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     if (verifyToken) {
       setLoading(true);
       apiFetch(`/api/auth/verify?token=${verifyToken}`)
-        .then(() => {
+        .then((res: any) => {
+          if (res?.user) {
+            setVerifiedUser(res.user);
+          }
           setVerifyStatus('success');
           window.history.replaceState({}, '', '/');
-          setTimeout(() => onAuth(), 1200);
+          setTimeout(() => onAuth(res?.user), 1000);
         })
         .catch((err) => {
           setVerifyStatus('error');
@@ -97,7 +101,7 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
       if (res.requiresVerification) {
         setEmailSentTo(email);
       } else {
-        onAuth();
+        onAuth(res?.user);
       }
     } catch (err: any) {
       setError(err.message || 'Registration failed');
@@ -110,11 +114,11 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     setError(null);
     setLoading(true);
     try {
-      await apiFetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ emailOrUsername: email, password }),
       });
-      onAuth();
+      onAuth(res?.user);
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
@@ -137,11 +141,11 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         setLoading(true);
         setError(null);
         try {
-          await apiFetch('/api/auth/google', {
+          const res = await apiFetch('/api/auth/google', {
             method: 'POST',
             body: JSON.stringify({ credential: response.credential }),
           });
-          onAuth();
+          onAuth(res?.user);
         } catch (err: any) {
           setError(err.message || 'Google sign-in failed');
         } finally {
@@ -158,7 +162,37 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         <div className="text-center py-8">
           <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto mb-4 text-xl">&#10003;</div>
           <h2 className="text-lg font-semibold text-zinc-100 mb-2">Email Verified!</h2>
-          <p className="text-zinc-400 text-sm">Logging you into EchoWire...</p>
+          <p className="text-zinc-400 text-sm mb-6">Logging you into EchoWire...</p>
+          <button
+            onClick={() => onAuth(verifiedUser)}
+            className={btnCls}
+          >
+            Enter EchoWire Now &rarr;
+          </button>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (verifyStatus === 'error') {
+    return (
+      <AuthShell>
+        <div className="text-center py-8">
+          <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center mx-auto mb-4 text-xl">&times;</div>
+          <h2 className="text-lg font-semibold text-zinc-100 mb-2">Verification Link Expired or Used</h2>
+          <p className="text-zinc-400 text-sm mb-6 leading-relaxed">
+            {error || 'This link may have already been used or expired. If your account is verified, you can sign in directly.'}
+          </p>
+          <button
+            onClick={() => {
+              setVerifyStatus(null);
+              setError(null);
+              onModeChange('signin');
+            }}
+            className={btnCls}
+          >
+            Sign In with Email &rarr;
+          </button>
         </div>
       </AuthShell>
     );

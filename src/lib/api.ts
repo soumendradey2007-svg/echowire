@@ -5,10 +5,34 @@ const API_BASE = (
     : '')
 ).replace(/\/$/, '');
 
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem('echowire_token');
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null) {
+  try {
+    if (token) {
+      localStorage.setItem('echowire_token', token);
+    } else {
+      localStorage.removeItem('echowire_token');
+    }
+  } catch {}
+}
+
 export async function apiFetch<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const method = (options.method || 'GET').toUpperCase();
   const headers: Record<string, string> = { ...(options.headers as any || {}) };
   let body = options.body;
+
+  // Automatically attach Bearer auth token if stored
+  const token = getAuthToken();
+  if (token && !headers['Authorization'] && !headers['authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   if (method !== 'GET' && method !== 'HEAD') {
     if (!body) {
@@ -36,7 +60,16 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestInit =
   }
 
   const data = await res.json().catch(() => ({}));
+
+  // If backend returned a new session token, store it locally
+  if (data && typeof data === 'object' && data.token) {
+    setAuthToken(data.token);
+  }
+
   if (!res.ok) {
+    if (res.status === 401 && endpoint.includes('/api/auth/me')) {
+      setAuthToken(null);
+    }
     const errorMsg =
       data.error ||
       data.message ||
@@ -49,3 +82,4 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestInit =
   }
   return data;
 }
+

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { IconHash, IconUsers, IconMic, IconMicOff, IconHeadphones, IconHeadphonesOff, IconPhoneOff, IconPhoneHangup, IconMessageSquare, IconSettings } from './components/Icons';
 import type { NavView, RightTab, AuthMode } from './types';
-import { apiFetch } from './lib/api';
+import { apiFetch, setAuthToken } from './lib/api';
 import { wsClient } from './lib/ws';
 import { voiceManager } from './lib/voice';
 import AuthView from './views/AuthView';
@@ -360,6 +360,7 @@ export default function App() {
       setIsDeafened(false);
 
       if (currentUser?.isGuest || res?.guestEnded) {
+        setAuthToken(null);
         setCurrentUser(null);
         wsClient.disconnect();
         setNavView('rooms');
@@ -477,15 +478,24 @@ export default function App() {
       <AuthView
         mode={authMode}
         onModeChange={setAuthMode}
-        onAuth={() => {
-          apiFetch('/api/auth/me')
-            .then((d) => {
-              setCurrentUser(d.user);
-              wsClient.connect();
-              loadRooms();
-              loadFriends();
-            })
-            .catch(console.error);
+        onAuth={(user?: any) => {
+          if (user) {
+            setCurrentUser(user);
+            wsClient.connect();
+            loadRooms();
+            loadFriends();
+            loadInvites();
+          } else {
+            apiFetch('/api/auth/me')
+              .then((d) => {
+                setCurrentUser(d.user);
+                wsClient.connect();
+                loadRooms();
+                loadFriends();
+                loadInvites();
+              })
+              .catch(console.error);
+          }
         }}
       />
     );
@@ -549,6 +559,7 @@ export default function App() {
           <SettingsView
             currentUser={currentUser}
             onLogout={() => {
+              setAuthToken(null);
               setCurrentUser(null);
               wsClient.disconnect();
             }}

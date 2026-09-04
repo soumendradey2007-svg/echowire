@@ -45,7 +45,18 @@ export class WsGateway {
 
       const rawCookie = req.headers.cookie;
       const parsedCookies = parseCookies(rawCookie);
-      const sessionToken = parsedCookies[config.cookieName];
+      const queryToken = (req.query as any)?.token || (req.query as any)?.auth_token;
+      let headerToken: string | undefined;
+      const authHeader = req.headers.authorization;
+      if (authHeader && typeof authHeader === 'string') {
+        const parts = authHeader.split(' ');
+        if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+          headerToken = parts[1].trim();
+        } else if (parts[0].length >= 16) {
+          headerToken = parts[0].trim();
+        }
+      }
+      const sessionToken = queryToken || headerToken || parsedCookies[config.cookieName];
 
       if (!sessionToken) {
         try { ws.close(4401, 'Unauthorized'); } catch {}

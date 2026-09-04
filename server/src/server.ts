@@ -1,4 +1,5 @@
 import { RateLimiter } from './services/rate-limit.service';
+import { AuthService } from './services/auth.service';
 import fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -76,7 +77,7 @@ export async function createServer() {
   app.get('/api/music/search', async (req, reply) => {
     try {
       const ip = req.ip || '127.0.0.1';
-      const token = req.cookies[config.cookieName];
+      const token = AuthService.extractToken(req);
       const limiterKey = token ? `music_search:${token.slice(0, 16)}` : `music_search:${ip}`;
       const rl = RateLimiter.check(limiterKey, 12, 60000);
       if (!rl.allowed) {
