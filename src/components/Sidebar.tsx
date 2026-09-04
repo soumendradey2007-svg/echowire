@@ -98,25 +98,28 @@ export default function Sidebar({ currentUser, navView, onNavChange, activeRoom,
         )}
 
         <div className="px-2 sm:px-3 py-3 flex items-center justify-center sm:justify-start gap-2.5 bg-zinc-950/40">
+        <button
+          onClick={() => onNavChange('profile')}
+          className="flex items-center gap-2.5 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
+          title="View Profile"
+        >
           <div className="relative flex-shrink-0">
             <div className="w-8 h-8 rounded-full flex items-center justify-center font-semibold text-white text-xs" style={{ backgroundColor: '#7c7cf5' }}>
               {initials}
             </div>
             <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-online border-2 border-zinc-900" />
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 text-left">
             <p className="text-zinc-200 text-xs font-medium truncate hidden sm:block">
               {username}<span className="text-zinc-500 text-[10px] font-mono">#{currentUser?.tag || (currentUser?.isGuest ? 'guest' : '1000')}</span>
             </p>
-            <button
-              type="button"
-              onClick={handleCopyId}
-              className="text-zinc-500 hover:text-accent text-[10px] truncate block text-left transition-colors cursor-pointer"
-              title="Click to copy your unique User ID"
+            <span
+              className="text-zinc-500 text-[10px] truncate block text-left"
             >
-              {copied ? 'Copied ID!' : (currentUser?.id ? `#${currentUser.id.slice(0, 8)} (Copy)` : 'Online')}
-            </button>
+              {currentUser?.id ? `#${currentUser.id.slice(0, 8)}` : 'Online'}
+            </span>
           </div>
+        </button>
           <button
             onClick={() => onNavChange('settings')}
             className="text-zinc-600 hover:text-zinc-400 transition-colors cursor-pointer flex-shrink-0"

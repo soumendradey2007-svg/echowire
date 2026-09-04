@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { IconHash, IconUsers, IconMic, IconMicOff, IconHeadphones, IconHeadphonesOff, IconPhoneOff, IconPhoneHangup, IconMessageSquare, IconSettings } from './components/Icons';
+import { IconHash, IconUsers, IconUser, IconMic, IconMicOff, IconHeadphones, IconHeadphonesOff, IconPhoneOff, IconPhoneHangup, IconMessageSquare, IconSettings } from './components/Icons';
 import type { NavView, RightTab, AuthMode } from './types';
 import { apiFetch, setAuthToken } from './lib/api';
 import { wsClient } from './lib/ws';
@@ -9,6 +9,7 @@ import RoomsView from './views/RoomsView';
 import VoiceRoomView from './views/VoiceRoomView';
 import FriendsView from './views/FriendsView';
 import SettingsView from './views/SettingsView';
+import ProfileView from './views/ProfileView';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
 
@@ -555,6 +556,16 @@ export default function App() {
             onDeclineInvite={handleDeclineInvite}
             onRefreshInvites={loadInvites}
           />
+        ) : navView === 'profile' ? (
+          <ProfileView
+            currentUser={currentUser}
+            onBack={() => setNavView('rooms')}
+            onLogout={() => {
+              setAuthToken(null);
+              setCurrentUser(null);
+              wsClient.disconnect();
+            }}
+          />
         ) : (
           <SettingsView
             currentUser={currentUser}
@@ -625,13 +636,22 @@ export default function App() {
             </button>
           </>
         ) : (
-          <button
-            onClick={() => setNavView('settings')}
-            className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] rounded-lg transition-all active:scale-95 cursor-pointer ${navView === 'settings' ? 'text-accent font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
-          >
-            <IconSettings size={20} />
-            <span className="text-[10px]">Settings</span>
-          </button>
+          <>
+            <button
+              onClick={() => setNavView('profile')}
+              className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] rounded-lg transition-all active:scale-95 cursor-pointer ${navView === 'profile' ? 'text-accent font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
+            >
+              <IconUser size={20} />
+              <span className="text-[10px]">Profile</span>
+            </button>
+            <button
+              onClick={() => setNavView('settings')}
+              className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] rounded-lg transition-all active:scale-95 cursor-pointer ${navView === 'settings' ? 'text-accent font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
+            >
+              <IconSettings size={20} />
+              <span className="text-[10px]">Settings</span>
+            </button>
+          </>
         )}
       </nav>
 

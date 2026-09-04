@@ -56,14 +56,6 @@ export default function VoiceRoomView({
   };
 
   const [noiseCancellation, setNoiseCancellation] = useState(() => voiceManager.getNoiseCancellation());
-  const [micLevel, setMicLevel] = useState(0);
-
-  useEffect(() => {
-    const unsub = voiceManager.onMicLevel((level) => {
-      setMicLevel(level);
-    });
-    return () => unsub();
-  }, []);
 
   const handleToggleNoiseCancellation = () => {
     const next = !noiseCancellation;
@@ -189,24 +181,6 @@ export default function VoiceRoomView({
           >
             <IconWave size={18} />
           </button>
-
-          {/* Live Mic Decibel Meter (Zero hearback, smooth real-time green meter) */}
-          <div
-            className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border transition-all flex-shrink-0 ${isMuted || isDeafened ? 'bg-zinc-900/40 border-zinc-800/40 text-zinc-500' : 'bg-zinc-900 border-zinc-800 text-zinc-300'}`}
-            title={isDeafened ? "Microphone Disabled (Deafened)" : isMuted ? "Microphone Muted" : `Microphone Active (${Math.round(micLevel)}%)`}
-          >
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isMuted || isDeafened ? 'bg-red-400' : micLevel > 4 ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`} />
-            <span className="text-[10px] text-zinc-400 font-mono hidden md:inline">Mic</span>
-            <div className="w-12 sm:w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden flex-shrink-0">
-              <div
-                className={`h-full rounded-full transition-all duration-75 ease-out ${isMuted || isDeafened ? 'bg-zinc-700' : 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]'}`}
-                style={{ width: `${isMuted || isDeafened ? 0 : micLevel}%` }}
-              />
-            </div>
-            <span className="text-[10px] font-mono text-zinc-400 w-6 text-right flex-shrink-0">
-              {isMuted || isDeafened ? 'OFF' : `${Math.round(micLevel)}%`}
-            </span>
-          </div>
 
           {/* Share Room */}
           <button

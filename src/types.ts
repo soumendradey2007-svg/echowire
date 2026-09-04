@@ -40,6 +40,6 @@ export interface Message {
   time: string
 }
 
-export type NavView = 'rooms' | 'friends' | 'settings'
+export type NavView = 'rooms' | 'friends' | 'settings' | 'profile'
 export type RightTab = 'members' | 'chat' | 'music'
 export type AuthMode = 'landing' | 'signin' | 'signup' | 'forgot'
