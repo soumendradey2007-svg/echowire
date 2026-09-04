@@ -32,6 +32,14 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [pendingJoinRoom, setPendingJoinRoom] = useState<string | null>(null);
 
+  const [googleLoaded, setGoogleLoaded] = useState(false);
+  const [googleBlocked, setGoogleBlocked] = useState(false);
+  const rememberMeRef = React.useRef(rememberMe);
+
+  useEffect(() => {
+    rememberMeRef.current = rememberMe;
+  }, [rememberMe]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const joinId = params.get('joinRoom');
@@ -95,6 +103,9 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
   const GOOGLE_CLIENT_ID = '217664802574-sk6blcmddomtucjia25le32mq2r7iod4.apps.googleusercontent.com';
 
   useEffect(() => {
+    setGoogleLoaded(false);
+    let mounted = true;
+
     const renderGoogleButtons = () => {
       if (typeof (window as any).google?.accounts?.id !== 'undefined') {
         const google = (window as any).google;
@@ -108,13 +119,19 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
               try {
                 const res = await apiFetch('/api/auth/google', {
                   method: 'POST',
-                  body: JSON.stringify({ credential: response.credential }),
+                  body: JSON.stringify({
+                    credential: response.credential,
+                    rememberMe: rememberMeRef.current,
+                  }),
                 });
+                if (res?.token) {
+                  setAuthToken(res.token, rememberMeRef.current);
+                }
                 onAuth(res?.user);
               } catch (err: any) {
                 setError(err.message || 'Google sign-in failed');
               } finally {
-                setLoading(false);
+                if (mounted) setLoading(false);
               }
             },
           });
@@ -122,7 +139,8 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
           const targets = ['google-btn-signup', 'google-btn-signin'];
           for (const tid of targets) {
             const el = document.getElementById(tid);
-            if (el && el.childElementCount === 0) {
+            if (el && !el.getAttribute('data-rendered')) {
+              el.innerHTML = '';
               google.accounts.id.renderButton(el, {
                 theme: 'filled_black',
                 size: 'large',
@@ -130,15 +148,29 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
                 text: 'continue_with',
                 shape: 'rectangular',
               });
+              el.setAttribute('data-rendered', 'true');
+              if (mounted) setGoogleLoaded(true);
             }
           }
-        } catch {}
+        } catch (err) {
+          console.error('[Google GIS Error]', err);
+        }
       }
     };
 
     renderGoogleButtons();
-    const t = setInterval(renderGoogleButtons, 1000);
-    return () => clearInterval(t);
+    const interval = setInterval(renderGoogleButtons, 300);
+    const blockTimer = setTimeout(() => {
+      if (mounted && typeof (window as any).google?.accounts?.id === 'undefined') {
+        setGoogleBlocked(true);
+      }
+    }, 4000);
+
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+      clearTimeout(blockTimer);
+    };
   }, [mode, isGuestMode]);
 
   const inputCls =
@@ -165,6 +197,9 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
       if (res.requiresVerification) {
         setEmailSentTo(email);
       } else {
+        if (res?.token) {
+          setAuthToken(res.token, rememberMe);
+        }
         onAuth(res?.user);
       }
     } catch (err: any) {
@@ -191,38 +226,6 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleGoogleClick = () => {
-    if (typeof (window as any).google === 'undefined') {
-      setError('Google Sign-In is initializing. Please try again in 2 seconds.');
-      return;
-    }
-    const google = (window as any).google;
-    google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: async (response: any) => {
-        if (!response.credential) return;
-        setLoading(true);
-        setError(null);
-        try {
-          const res = await apiFetch('/api/auth/google', {
-            method: 'POST',
-            body: JSON.stringify({ credential: response.credential }),
-          });
-          onAuth(res?.user);
-        } catch (err: any) {
-          setError(err.message || 'Google sign-in failed');
-        } finally {
-          setLoading(false);
-        }
-      },
-    });
-    google.accounts.id.prompt((notification: any) => {
-      if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-        setError('Google popup blocked. Make sure "https://echowire.vercel.app" is added to Authorized JavaScript origins in Google Cloud Console, or sign in with your email and password.');
-      }
-    });
   };
 
   if (verifyStatus === 'success') {
@@ -332,20 +335,25 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">{error}</div>}
 
         {/* Google Sign-Up Button */}
-        <div id="google-btn-signup" className="w-full flex justify-center mb-4 min-h-[40px]">
-          <button
-            type="button"
-            onClick={handleGoogleClick}
-            className="w-full flex items-center justify-center gap-2.5 bg-zinc-900 border border-zinc-800 text-zinc-200 text-sm font-medium py-2.5 rounded hover:bg-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
+        <div className="w-full mb-4">
+          <div
+            id="google-btn-signup"
+            className="w-full flex justify-center items-center min-h-[44px]"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24">
-              <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
-              <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/>
-              <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 14.5s.7 4.8 1.9 7.2l3.7-2.9z"/>
-              <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 17C3.7 20.7 7.5 24 12 24z"/>
-            </svg>
-            Continue with Google
-          </button>
+            {!googleBlocked ? (
+              <div className="w-full flex items-center justify-center gap-2.5 bg-zinc-900 border border-zinc-800 text-zinc-400 text-sm font-medium py-2.5 rounded min-h-[44px]">
+                <svg className="animate-spin h-4 w-4 text-zinc-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span>Loading Google Sign-In...</span>
+              </div>
+            ) : (
+              <div className="w-full p-2.5 bg-amber-500/10 border border-amber-500/20 rounded text-amber-300 text-xs text-center leading-relaxed">
+                Google Sign-In blocked by browser shield. Please sign up with email or disable shields for this site.
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-3 mb-4">
@@ -621,20 +629,25 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
       )}
 
       {/* Google Sign-In Button */}
-      <div id="google-btn-signin" className="w-full flex justify-center mb-4 min-h-[40px]">
-        <button
-          type="button"
-          onClick={handleGoogleClick}
-          className="w-full flex items-center justify-center gap-2.5 bg-zinc-900 border border-zinc-800 text-zinc-200 text-sm font-medium py-2.5 rounded hover:bg-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
+      <div className="w-full mb-4">
+        <div
+          id="google-btn-signin"
+          className="w-full flex justify-center items-center min-h-[44px]"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24">
-            <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
-            <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/>
-            <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 14.5s.7 4.8 1.9 7.2l3.7-2.9z"/>
-            <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 17C3.7 20.7 7.5 24 12 24z"/>
-          </svg>
-          Continue with Google
-        </button>
+          {!googleBlocked ? (
+            <div className="w-full flex items-center justify-center gap-2.5 bg-zinc-900 border border-zinc-800 text-zinc-400 text-sm font-medium py-2.5 rounded min-h-[44px]">
+              <svg className="animate-spin h-4 w-4 text-zinc-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span>Loading Google Sign-In...</span>
+            </div>
+          ) : (
+            <div className="w-full p-2.5 bg-amber-500/10 border border-amber-500/20 rounded text-amber-300 text-xs text-center leading-relaxed">
+              Google Sign-In blocked by browser shield. Please sign in with email or disable shields for this site.
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-3 mb-4">

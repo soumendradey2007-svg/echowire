@@ -90,7 +90,7 @@ export async function authRoutes(app: FastifyInstance) {
       const rl = RateLimiter.check(`google:${ip}`, 10, 60000);
       if (!rl.allowed) return reply.status(429).send({ error: 'Too many Google sign-in attempts. Please wait 1 minute.' });
 
-      const { credential } = (req.body as any) || {};
+      const { credential, rememberMe = true } = (req.body as any) || {};
       if (!credential) return reply.status(400).send({ error: 'Missing Google credential' });
 
       // Verify Google ID token via Google's tokeninfo endpoint
@@ -159,7 +159,7 @@ export async function authRoutes(app: FastifyInstance) {
         req.ip
       );
 
-      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
+      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt, rememberMe));
 
       const tag = getUserTag(existingUser);
       return {
