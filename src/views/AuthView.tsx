@@ -43,6 +43,10 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
       setResetToken(rToken);
       onModeChange('forgot');
     }
+    // Clean URL params after reading so they don't persist after logout/navigation
+    if (rToken || joinId) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   const handleGuestLogin = async () => {
@@ -410,20 +414,38 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
           {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">{error}</div>}
 
           <div className="space-y-3">
-            <input
-              className={inputCls}
-              placeholder="New password (min 8 characters)"
-              type="password"
-              value={resetPassword}
-              onChange={(e) => setResetPassword(e.target.value)}
-            />
-            <input
-              className={inputCls}
-              placeholder="Confirm new password"
-              type="password"
-              value={resetConfirmPassword}
-              onChange={(e) => setResetConfirmPassword(e.target.value)}
-            />
+            <div className="relative">
+              <input
+                className={inputCls}
+                placeholder="New password (min 8 characters)"
+                type={showPassword ? 'text' : 'password'}
+                value={resetPassword}
+                onChange={(e) => setResetPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+              >
+                {showPassword ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+              </button>
+            </div>
+            <div className="relative">
+              <input
+                className={inputCls}
+                placeholder="Confirm new password"
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={resetConfirmPassword}
+                onChange={(e) => setResetConfirmPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+              >
+                {showConfirmPassword ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+              </button>
+            </div>
             <button
               className={btnCls}
               disabled={loading}
@@ -437,6 +459,10 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
                     method: 'POST',
                     body: JSON.stringify({ token: resetToken, newPassword: resetPassword }),
                   });
+                  setResetToken(null);
+                  setResetPassword('');
+                  setResetConfirmPassword('');
+                  window.history.replaceState({}, '', '/');
                   onAuth(res?.user);
                 } catch (err: any) {
                   setError(err.message || 'Password reset failed');
@@ -448,6 +474,23 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
               {loading ? 'Updating password...' : 'Update Password & Enter EchoWire'}
             </button>
           </div>
+
+          <p className="mt-5 text-center text-zinc-500 text-sm">
+            <button
+              type="button"
+              className={linkCls}
+              onClick={() => {
+                setResetToken(null);
+                setResetPassword('');
+                setResetConfirmPassword('');
+                setError(null);
+                window.history.replaceState({}, '', '/');
+                onModeChange('signin');
+              }}
+            >
+              &larr; Cancel & return to sign in
+            </button>
+          </p>
         </AuthShell>
       );
     }

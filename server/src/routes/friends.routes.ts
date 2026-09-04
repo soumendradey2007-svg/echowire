@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { FriendRequestSchema } from '../shared/validators';
 import { AuthService } from '../services/auth.service';
+import { RateLimiter } from '../services/rate-limit.service';
 import { db } from '../db';
 import { friendships, users, userBlocks } from '../db/schema';
 import { eq, or, and } from 'drizzle-orm';
@@ -78,6 +79,9 @@ export async function friendRoutes(app: FastifyInstance) {
       if (!token) return reply.status(401).send({ error: 'Not authenticated' });
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
+
+      const rl = RateLimiter.check(`friend_req:${auth.user.id}`, 15, 60000);
+      if (!rl.allowed) return reply.status(429).send({ error: 'Too many friend requests sent. Please wait 1 minute.' });
 
       const body = FriendRequestSchema.parse(req.body);
       const query = body.targetUsername.trim();

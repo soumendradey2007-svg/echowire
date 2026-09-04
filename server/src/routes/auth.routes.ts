@@ -82,13 +82,37 @@ export async function authRoutes(app: FastifyInstance) {
   // Google OAuth Endpoint
   app.post('/api/auth/google', async (req, reply) => {
     try {
+      const ip = req.ip || '127.0.0.1';
+      const rl = RateLimiter.check(`google:${ip}`, 10, 60000);
+      if (!rl.allowed) return reply.status(429).send({ error: 'Too many Google sign-in attempts. Please wait 1 minute.' });
+
       const { credential } = (req.body as any) || {};
       if (!credential) return reply.status(400).send({ error: 'Missing Google credential' });
 
-      // Decode Google JWT payload
-      const parts = credential.split('.');
-      if (parts.length !== 3) return reply.status(400).send({ error: 'Invalid Google credential token' });
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      // Verify Google ID token via Google's tokeninfo endpoint
+      // This validates the JWT signature, expiry, audience, and issuer
+      const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '217664802574-sk6blcmddomtucjia25le32mq2r7iod4.apps.googleusercontent.com';
+      
+      let payload: any;
+      try {
+        const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+        if (!verifyRes.ok) {
+          return reply.status(401).send({ error: 'Invalid Google credential. Token verification failed.' });
+        }
+        payload = await verifyRes.json();
+        
+        // Verify audience matches our client ID
+        if (payload.aud !== GOOGLE_CLIENT_ID) {
+          return reply.status(401).send({ error: 'Google token audience mismatch. Potential forgery detected.' });
+        }
+        // Verify issuer
+        if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
+          return reply.status(401).send({ error: 'Google token issuer invalid.' });
+        }
+      } catch (verifyErr) {
+        console.error('[GOOGLE VERIFY ERROR]', verifyErr);
+        return reply.status(401).send({ error: 'Failed to verify Google credential' });
+      }
 
       const { email, name, picture } = payload;
       if (!email) return reply.status(400).send({ error: 'No email provided by Google account' });
@@ -406,6 +430,10 @@ export async function authRoutes(app: FastifyInstance) {
   // Reset Password Endpoint
   app.post('/api/auth/reset-password', async (req, reply) => {
     try {
+      const ip = req.ip || '127.0.0.1';
+      const rl = RateLimiter.check(`reset_pw:${ip}`, 5, 60000);
+      if (!rl.allowed) return reply.status(429).send({ error: 'Too many password reset attempts. Please wait 1 minute.' });
+
       const { token, newPassword } = (req.body as any) || {};
       if (!token) return reply.status(400).send({ error: 'Missing reset token' });
       if (!newPassword || newPassword.length < 8) {
@@ -615,6 +643,8 @@ export async function authRoutes(app: FastifyInstance) {
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
 
+      // Clean up all sessions first
+      await db.delete(sessions).where(eq(sessions.userId, auth.user.id));
       await db.delete(users).where(eq(users.id, auth.user.id));
       const isProd = config.env === 'production' || process.env.NODE_ENV === 'production';
       reply.clearCookie(config.cookieName, {

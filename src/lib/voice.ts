@@ -18,7 +18,14 @@ export class VoiceManager {
   private noiseCancellation: boolean = true;
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private highpassFilter: BiquadFilterNode | null = null;
+  // Multi-stage Studio DSP Nodes
+  private highpassFilter1: BiquadFilterNode | null = null;
+  private highpassFilter2: BiquadFilterNode | null = null;
+  private notchFilter50: BiquadFilterNode | null = null;
+  private notchFilter60: BiquadFilterNode | null = null;
+  private voiceEqNode: BiquadFilterNode | null = null;
+  private lowpassFilter: BiquadFilterNode | null = null;
+  private compressorNode: DynamicsCompressorNode | null = null;
   private gateGainNode: GainNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private bypassGainNode: GainNode | null = null;
@@ -119,47 +126,102 @@ export class VoiceManager {
           autoGainControl: { ideal: true },
           channelCount: { ideal: 1 },
           sampleRate: { ideal: 48000 },
-        },
+          googEchoCancellation: { ideal: true },
+          googAutoGainControl: { ideal: true },
+          googNoiseSuppression: { ideal: true },
+          googHighpassFilter: { ideal: true },
+          googNoiseReduction: { ideal: true },
+        } as any,
       });
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioContext = new AudioCtx();
+      this.audioContext = new AudioCtx({ sampleRate: 48000 });
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume().catch(() => {});
       }
 
       this.sourceNode = this.audioContext.createMediaStreamSource(this.rawStream);
 
-      // Clean Sub-bass filter (85Hz, Q: 0.707): Cuts table bumps & AC rumble without muffling voice
-      this.highpassFilter = this.audioContext.createBiquadFilter();
-      this.highpassFilter.type = 'highpass';
-      this.highpassFilter.frequency.setValueAtTime(85, this.audioContext.currentTime);
-      this.highpassFilter.Q.setValueAtTime(0.707, this.audioContext.currentTime);
+      // --- DISCORD-GRADE MULTI-STAGE DSP CHAIN ---
+      // 1. Dual-stage Cascading 24dB/octave Sub-bass Butterworth Filter (85Hz)
+      // Eliminates table vibrations, desk knocks, AC air turbulence, phone buzzing
+      this.highpassFilter1 = this.audioContext.createBiquadFilter();
+      this.highpassFilter1.type = 'highpass';
+      this.highpassFilter1.frequency.setValueAtTime(85, this.audioContext.currentTime);
+      this.highpassFilter1.Q.setValueAtTime(0.7071, this.audioContext.currentTime);
 
-      // Precision Noise Gate Gain Node
+      this.highpassFilter2 = this.audioContext.createBiquadFilter();
+      this.highpassFilter2.type = 'highpass';
+      this.highpassFilter2.frequency.setValueAtTime(85, this.audioContext.currentTime);
+      this.highpassFilter2.Q.setValueAtTime(0.7071, this.audioContext.currentTime);
+
+      // 2. Dual Mains Power Hum Notch Filters (50Hz and 60Hz)
+      // Cuts electrical ground hum and AC adapter buzzing
+      this.notchFilter50 = this.audioContext.createBiquadFilter();
+      this.notchFilter50.type = 'notch';
+      this.notchFilter50.frequency.setValueAtTime(50, this.audioContext.currentTime);
+      this.notchFilter50.Q.setValueAtTime(4.0, this.audioContext.currentTime);
+
+      this.notchFilter60 = this.audioContext.createBiquadFilter();
+      this.notchFilter60.type = 'notch';
+      this.notchFilter60.frequency.setValueAtTime(60, this.audioContext.currentTime);
+      this.notchFilter60.Q.setValueAtTime(4.0, this.audioContext.currentTime);
+
+      // 3. Speech Intelligibility & Presence Peaking Filter (2800Hz)
+      // Boosts human vocal clarity and formant definition
+      this.voiceEqNode = this.audioContext.createBiquadFilter();
+      this.voiceEqNode.type = 'peaking';
+      this.voiceEqNode.frequency.setValueAtTime(2800, this.audioContext.currentTime);
+      this.voiceEqNode.Q.setValueAtTime(1.2, this.audioContext.currentTime);
+      this.voiceEqNode.gain.setValueAtTime(2.2, this.audioContext.currentTime);
+
+      // 4. Lowpass Hiss Cutoff Filter (11500Hz)
+      // Eliminates coil whine, RF interference, and USB static hiss
+      this.lowpassFilter = this.audioContext.createBiquadFilter();
+      this.lowpassFilter.type = 'lowpass';
+      this.lowpassFilter.frequency.setValueAtTime(11500, this.audioContext.currentTime);
+      this.lowpassFilter.Q.setValueAtTime(0.7071, this.audioContext.currentTime);
+
+      // 5. Broadcast Dynamic Voice Compressor & Downward Expander
+      // Tightens vocal dynamics, prevents clipping, and pushes down background room noise
+      this.compressorNode = this.audioContext.createDynamicsCompressor();
+      this.compressorNode.threshold.setValueAtTime(-28, this.audioContext.currentTime);
+      this.compressorNode.knee.setValueAtTime(12, this.audioContext.currentTime);
+      this.compressorNode.ratio.setValueAtTime(3.5, this.audioContext.currentTime);
+      this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
+      this.compressorNode.release.setValueAtTime(0.12, this.audioContext.currentTime);
+
+      // 6. Precision Noise Gate Gain Node
       this.gateGainNode = this.audioContext.createGain();
       this.gateGainNode.gain.setValueAtTime(this.noiseCancellation ? 0.0 : 1.0, this.audioContext.currentTime);
 
-      // WebRTC Peer Destination
+      // 7. WebRTC Destination
       this.destinationNode = this.audioContext.createMediaStreamDestination();
 
-      // Bypass path (when NC is OFF)
+      // Bypass path (when NC is disabled)
       this.bypassGainNode = this.audioContext.createGain();
       this.bypassGainNode.gain.setValueAtTime(this.noiseCancellation ? 0.0 : 1.0, this.audioContext.currentTime);
 
-      // Noise-cancelled chain: source -> highpass -> gateGain -> destination
-      this.sourceNode.connect(this.highpassFilter);
-      this.highpassFilter.connect(this.gateGainNode);
+      // Connect Processed Signal Chain:
+      // source -> hp1 -> hp2 -> notch50 -> notch60 -> voiceEq -> lowpass -> compressor -> gateGain -> destination
+      this.sourceNode.connect(this.highpassFilter1);
+      this.highpassFilter1.connect(this.highpassFilter2);
+      this.highpassFilter2.connect(this.notchFilter50);
+      this.notchFilter50.connect(this.notchFilter60);
+      this.notchFilter60.connect(this.voiceEqNode);
+      this.voiceEqNode.connect(this.lowpassFilter);
+      this.lowpassFilter.connect(this.compressorNode);
+      this.compressorNode.connect(this.gateGainNode);
       this.gateGainNode.connect(this.destinationNode);
 
-      // Bypass chain: source -> bypassGain -> destination
+      // Connect Bypass Signal Chain:
       this.sourceNode.connect(this.bypassGainNode);
       this.bypassGainNode.connect(this.destinationNode);
 
-      // High-resolution Analyser for Live Decibel Meter & Speaking loop
+      // 8. High-Resolution Spectral Analyser for Voice Activity & Noise Detection
       this.analyser = this.audioContext.createAnalyser();
-      this.analyser.fftSize = 512;
-      this.analyser.smoothingTimeConstant = 0.2;
+      this.analyser.fftSize = 1024;
+      this.analyser.smoothingTimeConstant = 0.25;
       this.sourceNode.connect(this.analyser);
 
       this.localStream = this.destinationNode.stream;
@@ -178,13 +240,16 @@ export class VoiceManager {
 
   private startNoiseGateAndSpeakingLoop(onSpeaking: (speaking: boolean) => void) {
     if (!this.analyser || !this.audioContext) return;
-    const timeData = new Uint8Array(this.analyser.fftSize);
+    const fftSize = this.analyser.fftSize;
+    const timeData = new Uint8Array(fftSize);
+    const freqData = new Uint8Array(this.analyser.frequencyBinCount);
     let lastSpokenTime = 0;
-    const HOLD_TIME_MS = 280;
+    const HOLD_TIME_MS = 340; // 340ms hold prevents word clipping
 
     const loop = () => {
       if (!this.analyser || !this.audioContext) return;
       this.analyser.getByteTimeDomainData(timeData);
+      this.analyser.getByteFrequencyData(freqData);
 
       // 1. Calculate true RMS
       let sumSq = 0;
@@ -194,28 +259,47 @@ export class VoiceManager {
       }
       const rms = Math.sqrt(sumSq / timeData.length);
 
-      // 2. Calculate Decibel (dB) Level mapped to 0 - 100% for the Green Bar
+      // 2. Decibel Calculation for UI meters
       const db = 20 * Math.log10(Math.max(rms, 0.0001));
       const minDb = -48;
       const maxDb = -12;
       const rawPercent = ((db - minDb) / (maxDb - minDb)) * 100;
       const micPercent = Math.min(100, Math.max(0, Math.round(rawPercent)));
 
-      // Broadcast live decibel level to UI (zero hearback overhead)
       for (const cb of this.onMicLevelCallbacks) {
         cb(micPercent);
       }
 
-      // 3. Adaptive Noise Floor Tracking
+      // 3. Multi-Band Spectral Voice Discrimination
+      // At 48kHz with 1024 FFT, each bin is ~46.875Hz
+      // Vocal formant range: 280Hz to 3400Hz (bins 6 to 72)
+      let vocalSum = 0;
+      for (let b = 6; b <= 72; b++) {
+        vocalSum += freqData[b];
+      }
+      const vocalAvg = vocalSum / 67;
+
+      // High noise, mechanical keyboard clicks & mic hiss (>4000Hz, bins 85 to 220)
+      let hissSum = 0;
+      for (let b = 85; b <= 220; b++) {
+        hissSum += freqData[b];
+      }
+      const hissAvg = hissSum / 136;
+
+      // 4. Adaptive Room Noise Floor Tracking
       if (rms < this.ambientFloor) {
         this.ambientFloor = rms * 0.15 + this.ambientFloor * 0.85;
       } else {
-        this.ambientFloor = this.ambientFloor * 0.999 + rms * 0.001;
+        this.ambientFloor = this.ambientFloor * 0.998 + rms * 0.002;
       }
 
-      const noiseThreshold = Math.max(0.012, this.ambientFloor * 2.2);
+      const noiseThreshold = Math.max(0.011, this.ambientFloor * 2.2);
       const now = performance.now();
-      const isSpeech = rms > noiseThreshold;
+
+      // Vocal Formant Pattern Match:
+      // True human speech has dominant energy in vocal formants vs broadband hiss
+      const isVoiceFormantPresent = vocalAvg > 12 && (vocalAvg > hissAvg * 1.15 || vocalAvg > 35);
+      const isSpeech = rms > noiseThreshold && isVoiceFormantPresent;
 
       if (isSpeech) {
         lastSpokenTime = now;
@@ -223,10 +307,10 @@ export class VoiceManager {
 
       const isVoiceActive = isSpeech || (now - lastSpokenTime < HOLD_TIME_MS);
 
-      // 4. Gate Gain: 10ms smooth ramp up, 50ms release
+      // 5. Studio-Grade Psychoacoustic Gate (8ms attack, 40ms smooth release)
       if (this.gateGainNode && this.noiseCancellation) {
         const targetGain = isVoiceActive && !this.isMuted && !this.isDeafened ? 1.0 : 0.0;
-        const timeConstant = targetGain > 0.5 ? 0.01 : 0.05;
+        const timeConstant = targetGain > 0.5 ? 0.008 : 0.040;
         this.gateGainNode.gain.setTargetAtTime(
           targetGain,
           this.audioContext.currentTime,
@@ -294,12 +378,25 @@ export class VoiceManager {
     return peer;
   }
 
+  private optimizeOpusSdp(sdp: string): string {
+    if (!sdp) return sdp;
+    return sdp.replace(/a=fmtp:(\d+)\s+([^\r\n]+)/g, (match, pt, params) => {
+      if (params.includes('minptime') || params.includes('useinbandfec') || match.toLowerCase().includes('opus')) {
+        return `a=fmtp:${pt} ${params};useinbandfec=1;usedtx=1;maxaveragebitrate=64000;stereo=0;sprop-stereo=0`;
+      }
+      return match;
+    });
+  }
+
   private async initiateCall(targetUserId: string) {
     const peer = await this.getOrCreatePeer(targetUserId);
     const offer = await peer.pc.createOffer({
       offerToReceiveAudio: true,
       offerToReceiveVideo: false,
     });
+    if (offer.sdp) {
+      offer.sdp = this.optimizeOpusSdp(offer.sdp);
+    }
     await peer.pc.setLocalDescription(offer);
     wsClient.send('webrtc:signal', {
       targetUserId,
@@ -319,6 +416,9 @@ export class VoiceManager {
       peer.pendingCandidates = [];
 
       const answer = await peer.pc.createAnswer();
+      if (answer.sdp) {
+        answer.sdp = this.optimizeOpusSdp(answer.sdp);
+      }
       await peer.pc.setLocalDescription(answer);
       wsClient.send('webrtc:signal', {
         targetUserId: fromUserId,

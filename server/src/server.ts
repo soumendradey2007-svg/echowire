@@ -21,16 +21,19 @@ export async function createServer() {
 
   await app.register(cors, {
     origin: (origin, cb) => {
+      // Allow requests with no origin (e.g. curl, mobile apps, server-to-server)
       if (!origin) return cb(null, true);
       if (
         origin === config.clientOrigin ||
-        origin.endsWith('.vercel.app') ||
+        origin === 'https://echowire.vercel.app' ||
+        /^https:\/\/echowire(-[a-zA-Z0-9_-]+)?\.vercel\.app$/.test(origin) ||
         origin.includes('localhost') ||
         origin.includes('127.0.0.1')
       ) {
         return cb(null, true);
       }
-      return cb(null, true);
+      // Reject unknown origins
+      return cb(new Error('CORS: origin not allowed'), false);
     },
     credentials: true,
   });

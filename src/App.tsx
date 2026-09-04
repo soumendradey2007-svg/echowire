@@ -30,6 +30,87 @@ export default function App() {
   const [incomingInvite, setIncomingInvite] = useState<any>(null);
   const [invites, setInvites] = useState<any[]>([]);
 
+  // Navigation with Browser History integration
+  const navigateNav = (view: NavView, push = true) => {
+    setNavView(view);
+    if (push) {
+      const targetPath = view === 'rooms' ? (activeRoomId ? `/rooms/${activeRoomId}` : '/rooms') : `/${view}`;
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({ type: 'nav', view, activeRoomId }, '', targetPath);
+      }
+    }
+  };
+
+  const navigateAuth = (mode: AuthMode, push = true) => {
+    setAuthMode(mode);
+    if (push) {
+      const targetPath = mode === 'landing' ? '/' : `/${mode}`;
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({ type: 'auth', authMode: mode }, '', targetPath);
+      }
+    }
+  };
+
+  // Restore route from URL on initial load
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path === '/signin' || path === '/login') setAuthMode('signin');
+    else if (path === '/signup' || path === '/register') setAuthMode('signup');
+    else if (path === '/forgot') setAuthMode('forgot');
+    else if (path === '/friends') setNavView('friends');
+    else if (path === '/settings') setNavView('settings');
+    else if (path === '/profile') setNavView('profile');
+    else if (path.startsWith('/rooms')) setNavView('rooms');
+  }, []);
+
+  // Handle Browser Back / Forward Button Navigation (Arrow on top of browser)
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      const search = new URLSearchParams(window.location.search);
+
+      if (!currentUser) {
+        if (search.get('reset_token')) {
+          setAuthMode('forgot');
+          return;
+        }
+        if (path === '/signin' || path === '/login') {
+          setAuthMode('signin');
+        } else if (path === '/signup' || path === '/register') {
+          setAuthMode('signup');
+        } else if (path === '/forgot') {
+          setAuthMode('forgot');
+        } else {
+          setAuthMode('landing');
+        }
+        return;
+      }
+
+      // Authenticated navigation
+      if (path.startsWith('/rooms/')) {
+        const rId = path.replace('/rooms/', '').trim();
+        setNavView('rooms');
+        if (rId && rId !== activeRoomId) {
+          handleJoin(rId);
+        }
+      } else if (path === '/friends') {
+        setNavView('friends');
+      } else if (path === '/settings') {
+        setNavView('settings');
+      } else if (path === '/profile') {
+        setNavView('profile');
+      } else {
+        setNavView('rooms');
+        if (activeRoomId) {
+          handleDisconnect();
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [currentUser, activeRoomId]);
+
   const loadInvites = () => {
     apiFetch('/api/rooms/invites')
       .then((data) => {
@@ -335,6 +416,10 @@ export default function App() {
       wsClient.send("music:get_state", { roomId: id });
       setNavView('rooms');
       setRightOpen(true);
+      const targetPath = `/rooms/${id}`;
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({ type: 'room', roomId: id }, '', targetPath);
+      }
 
       // Connect live WebRTC Voice Chat across devices!
       await voiceManager.joinRoom(id, currentUser.id, (speaking) => {
@@ -359,6 +444,9 @@ export default function App() {
       setActiveRoomId(null);
       setIsMuted(false);
       setIsDeafened(false);
+      if (window.location.pathname !== '/rooms') {
+        window.history.pushState({ type: 'nav', view: 'rooms' }, '', '/rooms');
+      }
 
       if (currentUser?.isGuest || res?.guestEnded) {
         setAuthToken(null);
@@ -369,6 +457,21 @@ export default function App() {
         loadRooms();
       }
     }
+  };
+
+  const handleLogout = async () => {
+    // Call backend to revoke server-side session
+    try {
+      await apiFetch('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    // Clear client-side state
+    setAuthToken(null);
+    setCurrentUser(null);
+    wsClient.disconnect();
+    setNavView('rooms');
+    setAuthMode('landing');
+    // Clean any stale URL params
+    window.history.replaceState({}, '', '/');
   };
 
   
@@ -478,7 +581,7 @@ export default function App() {
     return (
       <AuthView
         mode={authMode}
-        onModeChange={setAuthMode}
+        onModeChange={navigateAuth}
         onAuth={(user?: any) => {
           if (user) {
             setCurrentUser(user);
@@ -510,7 +613,7 @@ export default function App() {
       <Sidebar
         currentUser={currentUser}
         navView={navView}
-        onNavChange={setNavView}
+        onNavChange={navigateNav}
         activeRoom={activeRoom}
         isMuted={isMuted}
         isDeafened={isDeafened}
@@ -559,21 +662,13 @@ export default function App() {
         ) : navView === 'profile' ? (
           <ProfileView
             currentUser={currentUser}
-            onBack={() => setNavView('rooms')}
-            onLogout={() => {
-              setAuthToken(null);
-              setCurrentUser(null);
-              wsClient.disconnect();
-            }}
+            onBack={() => navigateNav('rooms')}
+            onLogout={handleLogout}
           />
         ) : (
           <SettingsView
             currentUser={currentUser}
-            onLogout={() => {
-              setAuthToken(null);
-              setCurrentUser(null);
-              wsClient.disconnect();
-            }}
+            onLogout={handleLogout}
           />
         )}
       </main>
@@ -581,7 +676,7 @@ export default function App() {
       {/* Thumb-friendly Mobile Bottom Bar (visible on phones) */}
       <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800/90 px-3 pt-2 pb-[max(env(safe-area-inset-bottom),10px)] flex items-center justify-around shadow-2xl">
         <button
-          onClick={() => setNavView('rooms')}
+          onClick={() => navigateNav('rooms')}
           className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] rounded-lg transition-all active:scale-95 cursor-pointer ${navView === 'rooms' ? 'text-accent font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
         >
           <IconHash size={20} />
@@ -589,7 +684,7 @@ export default function App() {
         </button>
 
         <button
-          onClick={() => setNavView('friends')}
+          onClick={() => navigateNav('friends')}
           className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] rounded-lg relative transition-all active:scale-95 cursor-pointer ${navView === 'friends' ? 'text-accent font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
         >
           <IconUsers size={20} />
@@ -638,14 +733,14 @@ export default function App() {
         ) : (
           <>
             <button
-              onClick={() => setNavView('profile')}
+              onClick={() => navigateNav('profile')}
               className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] rounded-lg transition-all active:scale-95 cursor-pointer ${navView === 'profile' ? 'text-accent font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
               <IconUser size={20} />
               <span className="text-[10px]">Profile</span>
             </button>
             <button
-              onClick={() => setNavView('settings')}
+              onClick={() => navigateNav('settings')}
               className={`flex flex-col items-center justify-center gap-0.5 min-w-[48px] min-h-[44px] rounded-lg transition-all active:scale-95 cursor-pointer ${navView === 'settings' ? 'text-accent font-semibold' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
               <IconSettings size={20} />

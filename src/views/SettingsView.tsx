@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { IconUser, IconHeadphones, IconBell, IconShield, IconEye, IconTrash, IconLogOut, IconChevronDown } from '../components/Icons'
 import { apiFetch } from '../lib/api'
+import { voiceManager } from '../lib/voice'
 
 interface Props {
   currentUser?: any
@@ -204,13 +205,18 @@ function AccountSection({ currentUser, onLogout }: { currentUser?: any; onLogout
 function VoiceSection() {
   const [inputDevice, setInputDevice] = useState('default')
   const [outputDevice, setOutputDevice] = useState('default')
-  const [noiseSuppression, setNoiseSuppression] = useState(true)
+  const [noiseSuppression, setNoiseSuppression] = useState(() => voiceManager.getNoiseCancellation())
   const [echoCancellation, setEchoCancellation] = useState(true)
 
   const deviceOptions = [
     { value: 'default', label: 'System default' },
     { value: 'mic1', label: 'Default Microphone' },
   ]
+
+  const handleToggleNC = (enabled: boolean) => {
+    setNoiseSuppression(enabled)
+    voiceManager.setNoiseCancellation(enabled)
+  }
 
   return (
     <div>
@@ -221,10 +227,10 @@ function VoiceSection() {
       <SettingRow label="Output device">
         <Select value={outputDevice} onChange={setOutputDevice} options={deviceOptions} />
       </SettingRow>
-      <SettingRow label="Noise suppression" description="Reduce background noise from your mic">
-        <Toggle checked={noiseSuppression} onChange={setNoiseSuppression} />
+      <SettingRow label="Discord-Grade Noise Suppression" description="Sub-bass rumble cut, AC hum filter, formant enhancer & keyboard clatter suppression">
+        <Toggle checked={noiseSuppression} onChange={handleToggleNC} />
       </SettingRow>
-      <SettingRow label="Echo cancellation" description="Prevent audio feedback">
+      <SettingRow label="Echo cancellation" description="Prevent audio feedback & acoustic bleed">
         <Toggle checked={echoCancellation} onChange={setEchoCancellation} />
       </SettingRow>
     </div>
