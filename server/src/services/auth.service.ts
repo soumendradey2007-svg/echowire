@@ -45,10 +45,17 @@ export class AuthService {
     return undefined;
   }
 
-  static async createSession(userId: string, userAgent?: string, ipAddress?: string): Promise<{ rawToken: string; expiresAt: Date }> {
+  static async createSession(
+    userId: string,
+    userAgent?: string,
+    ipAddress?: string,
+    rememberMe: boolean = true
+  ): Promise<{ rawToken: string; expiresAt: Date }> {
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    // If rememberMe: 30 days. Otherwise: 1 day session.
+    const durationMs = rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    const expiresAt = new Date(Date.now() + durationMs);
 
     await db.insert(sessions).values({
       userId,

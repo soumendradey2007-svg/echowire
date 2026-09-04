@@ -8,15 +8,19 @@ export function getUserTag(user: { id: string; email?: string | null }): string 
   return String((num % 9000) + 1000);
 }
 
-function getCookieOptions(expiresAt: Date) {
+function getCookieOptions(expiresAt: Date, rememberMe: boolean = true) {
   const isProd = config.env === 'production' || process.env.NODE_ENV === 'production';
-  return {
+  const base: any = {
     path: '/',
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? ('none' as const) : ('lax' as const),
-    expires: expiresAt,
   };
+  if (rememberMe) {
+    base.expires = expiresAt;
+    base.maxAge = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
+  }
+  return base;
 }
 
 import type { FastifyInstance } from 'fastify';
@@ -356,14 +360,21 @@ export async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      const { rawToken, expiresAt } = await AuthService.createSession(user.id, req.headers['user-agent'], ip);
+      const rememberMe = body.rememberMe !== false;
+      const { rawToken, expiresAt } = await AuthService.createSession(
+        user.id,
+        req.headers['user-agent'],
+        ip,
+        rememberMe
+      );
 
-      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
+      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt, rememberMe));
 
       const tag = getUserTag(user);
       const isGuest = user.email.endsWith('@guest.echowire.local');
       return {
         token: rawToken,
+        rememberMe,
         user: {
           id: user.id,
           username: user.username,

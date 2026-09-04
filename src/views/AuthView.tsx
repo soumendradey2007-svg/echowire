@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { AuthMode } from '../types';
-import { apiFetch } from '../lib/api';
+import { apiFetch, setAuthToken } from '../lib/api';
 import { IconEye, IconEyeOff } from '../components/Icons';
 
 interface Props {
@@ -13,6 +13,7 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [username, setUsername] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -179,8 +180,11 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     try {
       const res = await apiFetch('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ emailOrUsername: email, password }),
+        body: JSON.stringify({ emailOrUsername: email, password, rememberMe }),
       });
+      if (res?.token) {
+        setAuthToken(res.token, rememberMe);
+      }
       onAuth(res?.user);
     } catch (err: any) {
       setError(err.message || 'Login failed');
@@ -661,6 +665,28 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
           </button>
         </div>
 
+        {/* Keep Me Signed In & Forgot Password */}
+        <div className="flex items-center justify-between py-0.5">
+          <label className="flex items-center gap-2 cursor-pointer select-none group">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-4 h-4 rounded bg-zinc-900 border border-zinc-700 text-accent focus:ring-0 focus:ring-offset-0 cursor-pointer accent-accent"
+            />
+            <span className="text-xs text-zinc-400 group-hover:text-zinc-200 transition-colors">
+              Keep me signed in
+            </span>
+          </label>
+          <button
+            type="button"
+            className={linkCls}
+            onClick={() => onModeChange('forgot')}
+          >
+            Forgot password?
+          </button>
+        </div>
+
         <button className={btnCls} onClick={handleLogin} disabled={loading}>
           {loading ? 'Signing in...' : 'Sign in'}
         </button>
@@ -673,11 +699,16 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
       >
         Continue as Guest (No account needed)
       </button>
-      <div className="mt-4 flex items-center justify-between">
-        <span className={linkCls} onClick={() => onModeChange('forgot')}>Forgot password?</span>
-        <span className={`${linkCls} text-zinc-500`} onClick={() => onModeChange('signup')}>
+
+      <div className="mt-4 text-center">
+        <span className="text-zinc-500 text-xs">Don't have an account? </span>
+        <button
+          type="button"
+          className={`${linkCls} text-xs`}
+          onClick={() => onModeChange('signup')}
+        >
           Create account
-        </span>
+        </button>
       </div>
     </AuthShell>
   );
