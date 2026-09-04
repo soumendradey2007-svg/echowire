@@ -2,8 +2,6 @@ import { config } from '../config';
 import * as schema from './schema';
 import { drizzle as drizzlePg } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { PGlite } from '@electric-sql/pglite';
-import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -13,27 +11,38 @@ export let rawSqlExecute: (query: string) => Promise<any>;
 export async function initDb() {
   if (config.databaseUrl) {
     try {
-      const client = postgres(config.databaseUrl, { max: 10 });
+      const isExternalSsl = config.databaseUrl.includes('render.com') || 
+                            config.databaseUrl.includes('neon.tech') || 
+                            config.databaseUrl.includes('supabase.co') ||
+                            config.databaseUrl.includes('sslmode=require');
+      const client = postgres(config.databaseUrl, { 
+        max: 5,
+        idle_timeout: 20,
+        connect_timeout: 10,
+        ssl: isExternalSsl ? 'require' : undefined
+      });
       db = drizzlePg(client, { schema });
       rawSqlExecute = async (q: string) => client.unsafe(q);
       console.log('[DATABASE] Connected to PostgreSQL via DATABASE_URL');
+      await runMigrations();
+      return;
     } catch (err) {
       console.warn('[DATABASE] PostgreSQL connection failed, falling back to embedded PGlite engine:', err);
-      initEmbeddedPglite();
     }
-  } else {
-    initEmbeddedPglite();
   }
 
+  await initEmbeddedPglite();
   await runMigrations();
 }
 
-function initEmbeddedPglite() {
+async function initEmbeddedPglite() {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const { drizzle: drizzlePglite } = await import('drizzle-orm/pglite');
   const dataDir = path.resolve(process.cwd(), 'data/echowire-db');
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
-  const pglite = new PGlite(dataDir);
+  const pglite = new PGlite(dataDir, { relaxedDurability: true });
   db = drizzlePglite(pglite, { schema });
   rawSqlExecute = async (q: string) => pglite.exec(q);
   console.log('[DATABASE] Initialized real PostgreSQL database via PGlite engine at data/echowire-db');
