@@ -117,16 +117,39 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
       onAuth();
     } catch (err: any) {
       setError(err.message || 'Login failed');
-      if (err.devVerifyUrl) {
-        setDevVerifyUrl(err.devVerifyUrl);
-      }
     } finally {
       setLoading(false);
     }
   };
 
+  const GOOGLE_CLIENT_ID = '217664802574-sk6blcmddomtucjia25le32mq2r7iod4.apps.googleusercontent.com';
+
   const handleGoogleClick = () => {
-    alert('Google OAuth will be activated once deployed with your live domain!');
+    if (typeof (window as any).google === 'undefined') {
+      setError('Google Sign-In is initializing. Please try again in 2 seconds.');
+      return;
+    }
+    const google = (window as any).google;
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: async (response: any) => {
+        if (!response.credential) return;
+        setLoading(true);
+        setError(null);
+        try {
+          await apiFetch('/api/auth/google', {
+            method: 'POST',
+            body: JSON.stringify({ credential: response.credential }),
+          });
+          onAuth();
+        } catch (err: any) {
+          setError(err.message || 'Google sign-in failed');
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+    google.accounts.id.prompt();
   };
 
   if (verifyStatus === 'success') {
@@ -335,14 +358,6 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
       {error && (
         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">
           <p>{error}</p>
-          {devVerifyUrl && (
-            <a
-              href={devVerifyUrl}
-              className="mt-2 inline-block text-accent font-medium underline"
-            >
-              Click here to verify your email now &rarr;
-            </a>
-          )}
         </div>
       )}
 

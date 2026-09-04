@@ -73,6 +73,87 @@ export async function authRoutes(app: FastifyInstance) {
     }
   });
 
+  // Google OAuth Endpoint
+  app.post('/api/auth/google', async (req, reply) => {
+    try {
+      const { credential } = (req.body as any) || {};
+      if (!credential) return reply.status(400).send({ error: 'Missing Google credential' });
+
+      // Decode Google JWT payload
+      const parts = credential.split('.');
+      if (parts.length !== 3) return reply.status(400).send({ error: 'Invalid Google credential token' });
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+
+      const { email, name, picture } = payload;
+      if (!email) return reply.status(400).send({ error: 'No email provided by Google account' });
+
+      let [existingUser] = await db
+        .select()
+        .from(users)
+        .where(eq(users.email, email))
+        .limit(1);
+
+      if (!existingUser) {
+        const baseUsername = (name || email.split('@')[0])
+          .replace(/[^a-zA-Z0-9_]/g, '')
+          .slice(0, 20) || 'User';
+        const randSuffix = Math.floor(1000 + Math.random() * 9000);
+        const finalUsername = `${baseUsername}_${randSuffix}`;
+        const dummyPasswordHash = await AuthService.hashPassword(crypto.randomBytes(32).toString('hex'));
+
+        const [created] = await db
+          .insert(users)
+          .values({
+            username: finalUsername,
+            email,
+            passwordHash: dummyPasswordHash,
+            avatarUrl: picture || null,
+            isEmailVerified: true,
+          })
+          .returning();
+        existingUser = created;
+      } else if (!existingUser.isEmailVerified) {
+        await db
+          .update(users)
+          .set({ isEmailVerified: true, updatedAt: new Date() })
+          .where(eq(users.id, existingUser.id));
+      }
+
+      const { rawToken, expiresAt } = await AuthService.createSession(
+        existingUser.id,
+        req.headers['user-agent'],
+        req.ip
+      );
+
+      reply.setCookie(config.cookieName, rawToken, {
+        path: '/',
+        httpOnly: true,
+        secure: config.env === 'production',
+        sameSite: 'lax',
+        expires: expiresAt,
+      });
+
+      const tag = getUserTag(existingUser);
+      return {
+        user: {
+          id: existingUser.id,
+          username: existingUser.username,
+          tag,
+          userTag: `${existingUser.username}#${tag}`,
+          email: existingUser.email,
+          avatarUrl: existingUser.avatarUrl,
+          bio: existingUser.bio,
+          status: existingUser.status,
+          isEmailVerified: true,
+          createdAt: existingUser.createdAt.toISOString(),
+        },
+      };
+    } catch (err: any) {
+      console.error('[GOOGLE AUTH ERROR]', err);
+      return reply.status(500).send({ error: err.message || 'Google authentication failed' });
+    }
+  });
+
   // Verification Endpoint
   app.get('/api/auth/verify', async (req, reply) => {
     try {
