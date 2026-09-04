@@ -171,4 +171,7 @@ async function runMigrations() {
   `;
 
   await rawSqlExecute(ddl);
+  try {
+    await rawSqlExecute("DELETE FROM users WHERE email LIKE '%@guest.echowire.local'");
+  } catch {}
 }

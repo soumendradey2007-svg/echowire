@@ -26,7 +26,7 @@ import { RateLimiter } from '../services/rate-limit.service';
 import { EmailService } from '../services/email.service';
 import { db } from '../db';
 import { users, sessions } from '../db/schema';
-import { eq, or, and, gt } from 'drizzle-orm';
+import { eq, or, and, gt, sql } from 'drizzle-orm';
 import { config } from '../config';
 import crypto from 'node:crypto';
 
@@ -47,7 +47,7 @@ export async function authRoutes(app: FastifyInstance) {
 
       const [newUser] = await db.insert(users).values({
         id: guestId,
-        username: cleanName,
+        username: `${cleanName}_${guestRand}`,
         email: guestEmail,
         passwordHash: dummyPasswordHash,
         isEmailVerified: true,
@@ -61,9 +61,9 @@ export async function authRoutes(app: FastifyInstance) {
         token: rawToken,
         user: {
           id: newUser.id,
-          username: newUser.username,
+          username: cleanName,
           tag: 'guest',
-          userTag: `${newUser.username}#guest`,
+          userTag: `${cleanName}#guest`,
           isGuest: true,
           email: newUser.email,
           avatarUrl: null,
@@ -219,69 +219,71 @@ export async function authRoutes(app: FastifyInstance) {
       if (!rl.allowed) return reply.status(429).send({ error: 'Too many registration attempts. Please wait 1 minute.' });
 
       const body = RegisterSchema.parse(req.body);
+      const cleanUsername = body.username.trim();
+      const cleanEmail = body.email.trim().toLowerCase();
+
       const [existing] = await db
         .select()
         .from(users)
-        .where(or(eq(users.username, body.username), eq(users.email, body.email)))
+        .where(or(
+          sql`LOWER(${users.username}) = LOWER(${cleanUsername})`,
+          sql`LOWER(${users.email}) = ${cleanEmail}`
+        ))
         .limit(1);
 
       const verifyToken = crypto.randomBytes(32).toString('hex');
       const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-      const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:8443';
-      const devVerifyUrl = `http://${host}?verify_token=${verifyToken}`;
 
       if (existing) {
-        if (!existing.isEmailVerified) {
-          const passwordHash = await AuthService.hashPassword(body.password);
-          await db
-            .update(users)
-            .set({
-              username: body.username,
-              email: body.email,
-              passwordHash,
-              verificationToken: verifyToken,
-              verificationExpiresAt: verifyExpires,
-              updatedAt: new Date(),
-            })
-            .where(eq(users.id, existing.id));
+        if (existing.email.endsWith('@guest.echowire.local')) {
+          await db.delete(users).where(eq(users.id, existing.id));
+        } else if (existing.email.toLowerCase() === cleanEmail) {
+          if (!existing.isEmailVerified) {
+            const passwordHash = await AuthService.hashPassword(body.password);
+            await db
+              .update(users)
+              .set({
+                username: cleanUsername,
+                email: cleanEmail,
+                passwordHash,
+                verificationToken: verifyToken,
+                verificationExpiresAt: verifyExpires,
+                updatedAt: new Date(),
+              })
+              .where(eq(users.id, existing.id));
 
-          console.log('\n======================================================');
-          console.log(`[AUTH] 🔗 Verification link for ${body.email}:`);
-          console.log(devVerifyUrl);
-          console.log('======================================================\n');
+            await EmailService.sendVerificationEmail(cleanEmail, cleanUsername, verifyToken);
 
-          await EmailService.sendVerificationEmail(body.email, body.username, verifyToken);
+            return {
+              success: true,
+              requiresVerification: true,
+              message: 'A fresh confirmation email has been sent to your inbox.',
+            };
+          }
 
-          return {
-            success: true,
-            requiresVerification: true,
-            message: 'A fresh confirmation email has been sent to your inbox.',
-          };
+          return reply.status(400).send({
+            error: 'An account with this email is already registered and verified. Please sign in.',
+          });
+        } else {
+          return reply.status(400).send({
+            error: 'This username is taken by another account. Please pick a different username.',
+          });
         }
-
-        return reply.status(400).send({
-          error: existing.username === body.username ? 'Username is already taken' : 'Email is already registered',
-        });
       }
 
       const passwordHash = await AuthService.hashPassword(body.password);
       await db
         .insert(users)
         .values({
-          username: body.username,
-          email: body.email,
+          username: cleanUsername,
+          email: cleanEmail,
           passwordHash,
           isEmailVerified: false,
           verificationToken: verifyToken,
           verificationExpiresAt: verifyExpires,
         });
 
-      console.log('\n======================================================');
-      console.log(`[AUTH] 🔗 Verification link for ${body.email}:`);
-      console.log(devVerifyUrl);
-      console.log('======================================================\n');
-
-      await EmailService.sendVerificationEmail(body.email, body.username, verifyToken);
+      await EmailService.sendVerificationEmail(cleanEmail, cleanUsername, verifyToken);
 
       return {
         success: true,
@@ -298,28 +300,33 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/api/auth/login', async (req, reply) => {
     try {
       const ip = req.ip || '127.0.0.1';
-      const rl = RateLimiter.check(`login:${ip}`, 10, 60000);
+      const rl = RateLimiter.check(`login:${ip}`, 15, 60000);
       if (!rl.allowed) return reply.status(429).send({ error: 'Too many login attempts. Please wait 1 minute.' });
 
       const body = LoginSchema.parse(req.body);
+      const cleanQuery = body.emailOrUsername.trim().toLowerCase();
       const [user] = await db
         .select()
         .from(users)
-        .where(or(eq(users.email, body.emailOrUsername), eq(users.username, body.emailOrUsername)))
+        .where(or(
+          sql`LOWER(${users.email}) = ${cleanQuery}`,
+          sql`LOWER(${users.username}) = ${cleanQuery}`
+        ))
         .limit(1);
 
-      if (!user || !(await AuthService.verifyPassword(user.passwordHash, body.password))) {
-        return reply.status(401).send({ error: 'Invalid email/username or password' });
+      if (!user) {
+        return reply.status(401).send({ error: 'No account found with that email or username. Please check your spelling or create an account.' });
+      }
+
+      if (user.email.endsWith('@guest.echowire.local')) {
+        return reply.status(400).send({ error: 'This is a temporary guest account. Please continue as guest or create a real account.' });
+      }
+
+      if (!(await AuthService.verifyPassword(user.passwordHash, body.password))) {
+        return reply.status(401).send({ error: 'Incorrect password. Please try again or use "Forgot password?".' });
       }
 
       if (!user.isEmailVerified) {
-        const devVerifyUrl = user.verificationToken ? `http://localhost:8443?verify_token=${user.verificationToken}` : null;
-        if (devVerifyUrl) {
-          console.log('\n======================================================');
-          console.log(`[AUTH] Unverified user login attempt. Verification link:`);
-          console.log(devVerifyUrl);
-          console.log('======================================================\n');
-        }
         return reply.status(403).send({
           error: 'Please check your email and verify your account before signing in.',
         });
@@ -350,6 +357,107 @@ export async function authRoutes(app: FastifyInstance) {
     } catch (err: any) {
       console.error('[LOGIN ERROR]', err);
       return reply.status(500).send({ error: err.message || 'Login failed' });
+    }
+  });
+
+  // Forgot Password Endpoint
+  app.post('/api/auth/forgot-password', async (req, reply) => {
+    try {
+      const ip = req.ip || '127.0.0.1';
+      const rl = RateLimiter.check(`forgot:${ip}`, 5, 60000);
+      if (!rl.allowed) return reply.status(429).send({ error: 'Too many requests. Please wait 1 minute.' });
+
+      const { email } = (req.body as any) || {};
+      if (!email || !email.trim()) return reply.status(400).send({ error: 'Please enter your email address' });
+
+      const cleanEmail = email.trim().toLowerCase();
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(sql`LOWER(${users.email}) = ${cleanEmail}`)
+        .limit(1);
+
+      if (user && !user.email.endsWith('@guest.echowire.local')) {
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+        await db
+          .update(users)
+          .set({
+            verificationToken: resetToken,
+            verificationExpiresAt: resetExpires,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+
+        await EmailService.sendPasswordResetEmail(user.email, user.username, resetToken);
+      }
+
+      return {
+        success: true,
+        message: 'If an account exists with this email, a password reset link has been sent.',
+      };
+    } catch (err: any) {
+      console.error('[FORGOT PASSWORD ERROR]', err);
+      return reply.status(500).send({ error: err.message || 'Failed to process request' });
+    }
+  });
+
+  // Reset Password Endpoint
+  app.post('/api/auth/reset-password', async (req, reply) => {
+    try {
+      const { token, newPassword } = (req.body as any) || {};
+      if (!token) return reply.status(400).send({ error: 'Missing reset token' });
+      if (!newPassword || newPassword.length < 8) {
+        return reply.status(400).send({ error: 'Password must be at least 8 characters' });
+      }
+
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(and(eq(users.verificationToken, token), gt(users.verificationExpiresAt, new Date())))
+        .limit(1);
+
+      if (!user) {
+        return reply.status(400).send({ error: 'Invalid or expired password reset link. Please request a new one.' });
+      }
+
+      const newHash = await AuthService.hashPassword(newPassword);
+      await db
+        .update(users)
+        .set({
+          passwordHash: newHash,
+          isEmailVerified: true,
+          verificationToken: null,
+          verificationExpiresAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
+
+      const { rawToken, expiresAt } = await AuthService.createSession(user.id, req.headers['user-agent'], req.ip);
+      reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
+
+      const tag = getUserTag(user);
+      return {
+        success: true,
+        message: 'Password reset successfully! Logging you in...',
+        token: rawToken,
+        user: {
+          id: user.id,
+          username: user.username,
+          tag,
+          userTag: `${user.username}#${tag}`,
+          isGuest: false,
+          email: user.email,
+          avatarUrl: user.avatarUrl,
+          bio: user.bio,
+          status: user.status,
+          isEmailVerified: true,
+          createdAt: user.createdAt.toISOString(),
+        },
+      };
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message || 'Password reset failed' });
     }
   });
 

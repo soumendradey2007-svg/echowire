@@ -22,6 +22,11 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
   const [verifyStatus, setVerifyStatus] = useState<string | null>(null);
   const [verifiedUser, setVerifiedUser] = useState<any>(null);
 
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
+
   const [guestName, setGuestName] = useState('');
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [pendingJoinRoom, setPendingJoinRoom] = useState<string | null>(null);
@@ -32,6 +37,11 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     if (joinId) {
       setPendingJoinRoom(joinId);
       setIsGuestMode(true);
+    }
+    const rToken = params.get('reset_token');
+    if (rToken) {
+      setResetToken(rToken);
+      onModeChange('forgot');
     }
   }, []);
 
@@ -76,6 +86,55 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         .finally(() => setLoading(false));
     }
   }, []);
+
+  const GOOGLE_CLIENT_ID = '217664802574-sk6blcmddomtucjia25le32mq2r7iod4.apps.googleusercontent.com';
+
+  useEffect(() => {
+    const renderGoogleButtons = () => {
+      if (typeof (window as any).google?.accounts?.id !== 'undefined') {
+        const google = (window as any).google;
+        try {
+          google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: async (response: any) => {
+              if (!response.credential) return;
+              setLoading(true);
+              setError(null);
+              try {
+                const res = await apiFetch('/api/auth/google', {
+                  method: 'POST',
+                  body: JSON.stringify({ credential: response.credential }),
+                });
+                onAuth(res?.user);
+              } catch (err: any) {
+                setError(err.message || 'Google sign-in failed');
+              } finally {
+                setLoading(false);
+              }
+            },
+          });
+
+          const targets = ['google-btn-signup', 'google-btn-signin'];
+          for (const tid of targets) {
+            const el = document.getElementById(tid);
+            if (el && el.childElementCount === 0) {
+              google.accounts.id.renderButton(el, {
+                theme: 'filled_black',
+                size: 'large',
+                width: 340,
+                text: 'continue_with',
+                shape: 'rectangular',
+              });
+            }
+          }
+        } catch {}
+      }
+    };
+
+    renderGoogleButtons();
+    const t = setInterval(renderGoogleButtons, 1000);
+    return () => clearInterval(t);
+  }, [mode, isGuestMode]);
 
   const inputCls =
     'w-full bg-zinc-900 border border-zinc-800 text-zinc-100 text-sm rounded px-3 py-2.5 outline-none focus:border-accent placeholder:text-zinc-600 transition-colors';
@@ -126,8 +185,6 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     }
   };
 
-  const GOOGLE_CLIENT_ID = '217664802574-sk6blcmddomtucjia25le32mq2r7iod4.apps.googleusercontent.com';
-
   const handleGoogleClick = () => {
     if (typeof (window as any).google === 'undefined') {
       setError('Google Sign-In is initializing. Please try again in 2 seconds.');
@@ -153,7 +210,11 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         }
       },
     });
-    google.accounts.id.prompt();
+    google.accounts.id.prompt((notification: any) => {
+      if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+        setError('Google popup blocked. Make sure "https://echowire.vercel.app" is added to Authorized JavaScript origins in Google Cloud Console, or sign in with your email and password.');
+      }
+    });
   };
 
   if (verifyStatus === 'success') {
@@ -263,19 +324,21 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">{error}</div>}
 
         {/* Google Sign-Up Button */}
-        <button
-          type="button"
-          onClick={handleGoogleClick}
-          className="w-full mb-4 flex items-center justify-center gap-2.5 bg-zinc-900 border border-zinc-800 text-zinc-200 text-sm font-medium py-2.5 rounded hover:bg-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24">
-            <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
-            <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/>
-            <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 14.5s.7 4.8 1.9 7.2l3.7-2.9z"/>
-            <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 17C3.7 20.7 7.5 24 12 24z"/>
-          </svg>
-          Continue with Google
-        </button>
+        <div id="google-btn-signup" className="w-full flex justify-center mb-4 min-h-[40px]">
+          <button
+            type="button"
+            onClick={handleGoogleClick}
+            className="w-full flex items-center justify-center gap-2.5 bg-zinc-900 border border-zinc-800 text-zinc-200 text-sm font-medium py-2.5 rounded hover:bg-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24">
+              <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
+              <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/>
+              <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 14.5s.7 4.8 1.9 7.2l3.7-2.9z"/>
+              <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 17C3.7 20.7 7.5 24 12 24z"/>
+            </svg>
+            Continue with Google
+          </button>
+        </div>
 
         <div className="flex items-center gap-3 mb-4">
           <div className="flex-1 h-px bg-zinc-800" />
@@ -332,6 +395,121 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
 
         <p className="mt-5 text-center text-zinc-500 text-sm">
           Already have an account? <span className={linkCls} onClick={() => onModeChange('signin')}>Sign in</span>
+        </p>
+      </AuthShell>
+    );
+  }
+
+  if (mode === 'forgot') {
+    if (resetToken) {
+      return (
+        <AuthShell>
+          <h2 className="text-xl font-semibold text-zinc-100 mb-1">Set New Password</h2>
+          <p className="text-zinc-500 text-sm mb-5">Enter your new password below.</p>
+
+          {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">{error}</div>}
+
+          <div className="space-y-3">
+            <input
+              className={inputCls}
+              placeholder="New password (min 8 characters)"
+              type="password"
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+            />
+            <input
+              className={inputCls}
+              placeholder="Confirm new password"
+              type="password"
+              value={resetConfirmPassword}
+              onChange={(e) => setResetConfirmPassword(e.target.value)}
+            />
+            <button
+              className={btnCls}
+              disabled={loading}
+              onClick={async () => {
+                setError(null);
+                if (resetPassword.length < 8) return setError('Password must be at least 8 characters');
+                if (resetPassword !== resetConfirmPassword) return setError('Passwords do not match');
+                setLoading(true);
+                try {
+                  const res = await apiFetch('/api/auth/reset-password', {
+                    method: 'POST',
+                    body: JSON.stringify({ token: resetToken, newPassword: resetPassword }),
+                  });
+                  onAuth(res?.user);
+                } catch (err: any) {
+                  setError(err.message || 'Password reset failed');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >
+              {loading ? 'Updating password...' : 'Update Password & Enter EchoWire'}
+            </button>
+          </div>
+        </AuthShell>
+      );
+    }
+
+    if (forgotSent) {
+      return (
+        <AuthShell>
+          <div className="text-center py-6">
+            <div className="w-12 h-12 rounded-full bg-accent/10 text-accent flex items-center justify-center mx-auto mb-4 text-xl">&#9993;</div>
+            <h2 className="text-xl font-semibold text-zinc-100 mb-2">Reset link sent</h2>
+            <p className="text-zinc-400 text-sm leading-relaxed mb-6">
+              If an account exists for <span className="text-zinc-200 font-medium">{email}</span>, we have sent a password reset link to your inbox.
+            </p>
+            <button onClick={() => { setForgotSent(false); onModeChange('signin'); }} className={btnCls}>
+              Back to Sign in
+            </button>
+          </div>
+        </AuthShell>
+      );
+    }
+
+    return (
+      <AuthShell>
+        <h2 className="text-xl font-semibold text-zinc-100 mb-1">Reset Password</h2>
+        <p className="text-zinc-500 text-sm mb-5">Enter your email and we'll send you a password reset link.</p>
+
+        {error && <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">{error}</div>}
+
+        <div className="space-y-3">
+          <input
+            className={inputCls}
+            placeholder="Your account email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <button
+            className={btnCls}
+            disabled={loading}
+            onClick={async () => {
+              setError(null);
+              if (!email.trim()) return setError('Please enter your email address');
+              setLoading(true);
+              try {
+                await apiFetch('/api/auth/forgot-password', {
+                  method: 'POST',
+                  body: JSON.stringify({ email: email.trim() }),
+                });
+                setForgotSent(true);
+              } catch (err: any) {
+                setError(err.message || 'Failed to send reset email');
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            {loading ? 'Sending link...' : 'Send Reset Link'}
+          </button>
+        </div>
+
+        <p className="mt-5 text-center text-zinc-500 text-sm">
+          Remember your password? <span className={linkCls} onClick={() => onModeChange('signin')}>Sign in</span>
         </p>
       </AuthShell>
     );
@@ -396,19 +574,21 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
       )}
 
       {/* Google Sign-In Button */}
-      <button
-        type="button"
-        onClick={handleGoogleClick}
-        className="w-full mb-4 flex items-center justify-center gap-2.5 bg-zinc-900 border border-zinc-800 text-zinc-200 text-sm font-medium py-2.5 rounded hover:bg-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24">
-          <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
-          <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/>
-          <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 14.5s.7 4.8 1.9 7.2l3.7-2.9z"/>
-          <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 17C3.7 20.7 7.5 24 12 24z"/>
-        </svg>
-        Continue with Google
-      </button>
+      <div id="google-btn-signin" className="w-full flex justify-center mb-4 min-h-[40px]">
+        <button
+          type="button"
+          onClick={handleGoogleClick}
+          className="w-full flex items-center justify-center gap-2.5 bg-zinc-900 border border-zinc-800 text-zinc-200 text-sm font-medium py-2.5 rounded hover:bg-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24">
+            <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.7l3.1-3.1C17.3 1.8 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
+            <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.7-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.9z"/>
+            <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3 0-.8.2-1.6.4-2.3L1.9 7.3C.7 9.7 0 12 0 14.5s.7 4.8 1.9 7.2l3.7-2.9z"/>
+            <path fill="#34A853" d="M12 24c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2.4-6.4-5.2L1.9 17C3.7 20.7 7.5 24 12 24z"/>
+          </svg>
+          Continue with Google
+        </button>
+      </div>
 
       <div className="flex items-center gap-3 mb-4">
         <div className="flex-1 h-px bg-zinc-800" />
