@@ -1,4 +1,9 @@
-const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+const API_BASE = (
+  import.meta.env.VITE_API_URL ||
+  (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')
+    ? 'https://echowire-2pw0.onrender.com'
+    : '')
+).replace(/\/$/, '');
 
 export async function apiFetch<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const method = (options.method || 'GET').toUpperCase();

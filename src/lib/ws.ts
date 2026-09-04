@@ -8,7 +8,10 @@ export class WebSocketClient {
   connect() {
     let url = import.meta.env.VITE_WS_URL;
     if (!url) {
-      const customApi = import.meta.env.VITE_API_URL;
+      const customApi = import.meta.env.VITE_API_URL ||
+        (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app')
+          ? 'https://echowire-2pw0.onrender.com'
+          : '');
       if (customApi) {
         const wsProtocol = customApi.startsWith('https') ? 'wss:' : 'ws:';
         const cleanHost = customApi.replace(/^https?:\/\//, '').replace(/\/$/, '');
