@@ -1,0 +1,248 @@
+import { useState } from 'react';
+import type { Room } from '../types';
+import { IconPlus, IconLock, IconX, IconTrash } from '../components/Icons'; import { IconShare } from '../components/Icons';
+import { apiFetch } from '../lib/api';
+
+interface Props {
+  rooms: Room[];
+  onJoin: (id: string) => void;
+  onRefresh?: () => void;
+  currentUser?: any;
+}
+
+export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Props) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [roomName, setRoomName] = useState('');
+  const [roomDesc, setRoomDesc] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [maxMembers, setMaxMembers] = useState('8');
+  const [textChat, setTextChat] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const inputCls =
+    'w-full bg-zinc-900 border border-zinc-800 text-zinc-100 text-sm rounded px-3 py-2 outline-none focus:border-accent placeholder:text-zinc-600 transition-colors';
+
+  const handleCreateRoom = async () => {
+    if (!roomName.trim()) {
+      setError('Please enter a room name');
+      return;
+    }
+    setError(null);
+    setCreating(true);
+    try {
+      const res = await apiFetch('/api/rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: roomName.trim(),
+          description: roomDesc.trim() || undefined,
+          isPrivate,
+          maxParticipants: parseInt(maxMembers, 10) || 8,
+          textChatEnabled: textChat,
+        }),
+      });
+
+      setShowCreate(false);
+      setRoomName('');
+      setRoomDesc('');
+      onRefresh?.();
+      if (res?.room?.id) {
+        onJoin(res.room.id);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to create room');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteRoom = async (id: string, name: string) => {
+    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+    try {
+      await apiFetch(`/api/rooms/${id}`, { method: 'DELETE' });
+      onRefresh?.();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete room');
+    }
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-w-0 bg-zinc-950">
+      <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-zinc-900">
+        <div>
+          <h1 className="text-zinc-100 font-semibold text-base">Rooms</h1>
+          <p className="text-zinc-500 text-xs mt-0.5">{rooms.length} available</p>
+        </div>
+        <button
+          onClick={() => { setShowCreate(true); setError(null); }}
+          className="flex items-center gap-1.5 bg-accent text-white text-xs sm:text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-accent/90 active:scale-95 transition-all cursor-pointer shadow"
+        >
+          <IconPlus size={14} />
+          <span>New room</span>
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6">
+        <div className="space-y-2">
+          {rooms.map((room) => (
+            <RoomRow
+              key={room.id}
+              room={room}
+              onJoin={onJoin}
+              onDelete={handleDeleteRoom}
+              currentUser={currentUser}
+            />
+          ))}
+        </div>
+      </div>
+
+      {showCreate && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-in fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-md p-5 sm:p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-zinc-100 font-semibold text-sm sm:text-base">Create a new room</h2>
+              <button onClick={() => setShowCreate(false)} className="text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer p-1">
+                <IconX size={16} />
+              </button>
+            </div>
+
+            {error && (
+              <div className="mb-4 p-2.5 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded">
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-zinc-400 text-xs font-medium mb-1">Room name</label>
+                <input
+                  className={inputCls}
+                  placeholder="e.g. Gaming Lounge, Study Chill..."
+                  value={roomName}
+                  onChange={(e) => setRoomName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-zinc-400 text-xs font-medium mb-1">Description (optional)</label>
+                <input
+                  className={inputCls}
+                  placeholder="What is this room about?"
+                  value={roomDesc}
+                  onChange={(e) => setRoomDesc(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => setShowCreate(false)}
+                  className="flex-1 bg-zinc-800 text-zinc-300 text-xs font-medium py-2 rounded-lg hover:bg-zinc-700 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateRoom}
+                  disabled={creating}
+                  className="flex-1 bg-accent text-white text-xs font-semibold py-2 rounded-lg hover:bg-accent/90 transition-all cursor-pointer disabled:opacity-50 shadow"
+                >
+                  {creating ? 'Creating...' : 'Create Room'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RoomRow({
+  room,
+  onJoin,
+  onDelete,
+  currentUser,
+}: {
+  room: Room;
+  onJoin: (id: string) => void;
+  onDelete: (id: string, name: string) => void;
+  currentUser?: any;
+}) {
+  const isFull = room.memberCount >= room.maxMembers;
+  const isOwner = currentUser?.id ? room.ownerId === currentUser.id : (room as any).isOwner;
+
+  return (
+    <div
+      onClick={() => !isFull && onJoin(room.id)}
+      className="flex items-center justify-between gap-3 px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700 transition-all cursor-pointer group shadow-sm active:scale-[0.99]"
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          {room.isPrivate && <IconLock size={12} className="text-zinc-500 flex-shrink-0" />}
+          <span className="text-zinc-100 text-sm font-semibold truncate">{room.name}</span>
+          {room.description === 'Personal Room' && (
+            <span className="text-[10px] text-accent bg-accent/15 border border-accent/20 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Personal</span>
+          )}
+          {isOwner && room.description !== 'Personal Room' && (
+            <span className="text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Owner</span>
+          )}
+          {isFull && (
+            <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded flex-shrink-0">Full</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 text-zinc-500 text-[11px] mt-1">
+          <span>{room.memberCount} / {room.maxMembers} in room</span>
+          {room.description && room.description !== 'Personal Room' && (
+            <>
+              <span>�</span>
+              <span className="truncate">{room.description}</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Delete Room Button (for owner) */}
+        {isOwner && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(room.id, room.name);
+            }}
+            className="p-2 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 active:bg-red-500/20 rounded-lg transition-colors cursor-pointer"
+            title="Delete this room"
+          >
+            <IconTrash size={15} />
+          </button>
+        )}
+
+        {/* Share Room Link Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const link = `${window.location.origin}/?joinRoom=${room.id}`;
+            navigator.clipboard.writeText(link);
+            alert(`Sharable link copied to clipboard!\n${link}`);
+          }}
+          className="p-2 text-zinc-500 hover:text-accent hover:bg-zinc-800 active:bg-zinc-700 rounded-lg transition-colors cursor-pointer"
+          title="Copy room link"
+        >
+          <IconShare size={14} />
+        </button>
+
+        {/* Join Room Button - ALWAYS VISIBLE ON BOTH MOBILE AND DESKTOP */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onJoin(room.id);
+          }}
+          disabled={isFull}
+          className="text-xs font-semibold px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-accent text-white hover:bg-accent/90 active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed transition-all shadow cursor-pointer"
+        >
+          Join
+        </button>
+      </div>
+    </div>
+  );
+}

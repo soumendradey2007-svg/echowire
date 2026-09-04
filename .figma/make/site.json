@@ -1,0 +1,10 @@
+{
+  "description": "Streamlines project workflows by converting markdown files into interactive, easy-to-navigate web interfaces for efficient team collaboration.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
