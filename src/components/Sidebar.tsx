@@ -107,7 +107,28 @@ export default function Sidebar({ currentUser, navView, onNavChange, activeRoom,
             <div className="w-8 h-8 rounded-full flex items-center justify-center font-semibold text-white text-xs" style={{ backgroundColor: '#7c7cf5' }}>
               {initials}
             </div>
-            <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-online border-2 border-zinc-900" />
+            {(() => {
+              const inRoom = !!activeRoom;
+              const status = inRoom ? 'in_room' : (currentUser?.status || 'online');
+              if (status === 'dnd') {
+                return (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[9px] leading-none shadow-sm" title="Do Not Disturb">
+                    💤
+                  </span>
+                );
+              }
+              if (status === 'in_room') {
+                return (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-purple-950/80 border border-purple-500/60 flex items-center justify-center text-purple-300 shadow-sm" title="In Voice Room">
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                      <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+                    </svg>
+                  </span>
+                );
+              }
+              return <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-online border-2 border-zinc-900" title="Online" />;
+            })()}
           </div>
           <div className="flex-1 min-w-0 text-left">
             <p className="text-zinc-200 text-xs font-medium truncate hidden sm:block">

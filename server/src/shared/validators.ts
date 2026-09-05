@@ -28,7 +28,7 @@ export const UpdateProfileSchema = z.object({
     .optional(),
   bio: z.string().max(250).optional().nullable(),
   avatarUrl: z.string().url().max(1024).optional().nullable(),
-  status: z.enum(['online', 'away', 'offline']).optional(),
+  status: z.enum(['online', 'dnd', 'in_room', 'away', 'offline']).optional(),
 });
 
 export const ChangePasswordSchema = z.object({

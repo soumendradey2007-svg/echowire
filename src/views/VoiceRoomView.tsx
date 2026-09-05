@@ -124,6 +124,24 @@ export default function VoiceRoomView({
     voiceManager.setPeerMuted(userId, next);
   };
 
+  const [kickingId, setKickingId] = useState<string | null>(null);
+
+  const handleKickMember = async (memberId: string, memberName: string) => {
+    if (!window.confirm(`Kick ${memberName} from this room?`)) return;
+    setKickingId(memberId);
+    try {
+      await apiFetch(`/api/rooms/${room.id}/kick`, {
+        method: 'POST',
+        body: JSON.stringify({ targetUserId: memberId }),
+      });
+      setActiveMenuId(null);
+    } catch (err: any) {
+      alert(err.message || 'Failed to kick member');
+    } finally {
+      setKickingId(null);
+    }
+  };
+
   const handleInviteFriend = async (friend: any) => {
     const targetUserId = friend.userId || friend.id;
     if (!targetUserId) return;
@@ -387,14 +405,15 @@ export default function VoiceRoomView({
                             Copy User ID
                           </button>
 
-                          {isOwner && (
+                          {isOwner && !member.isOwner && member.id !== currentUser?.id && (
                             <>
                               <div className="h-px bg-zinc-800 my-1" />
                               <button
-                                onClick={() => alert('Kick action: Member removed by owner')}
-                                className="w-full text-left px-2 py-1.5 rounded hover:bg-red-500/10 text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+                                onClick={() => handleKickMember(member.id, member.username)}
+                                disabled={kickingId === member.id}
+                                className="w-full text-left px-2 py-1.5 rounded hover:bg-red-500/10 text-red-400 hover:text-red-300 transition-colors cursor-pointer disabled:opacity-50"
                               >
-                                Kick from room
+                                {kickingId === member.id ? 'Kicking...' : 'Kick from room'}
                               </button>
                             </>
                           )}

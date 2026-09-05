@@ -7,6 +7,8 @@
   --color-accent-dim: rgba(124, 124, 245, 0.15);
   --color-online: #22c55e;
   --color-away: #f59e0b;
+  --color-dnd: #ef4444;
+  --color-inroom: #a78bfa;
   --color-err: #ef4444;
 }
 

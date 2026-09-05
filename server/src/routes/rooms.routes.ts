@@ -406,4 +406,47 @@ export async function roomRoutes(app: FastifyInstance) {
     return { success: true, roomId: inv?.roomId };
   });
 
+  // POST /api/rooms/:id/kick - Owner kicks a member from the room
+  app.post('/api/rooms/:id/kick', async (req, reply) => {
+    try {
+      const token = AuthService.extractToken(req);
+      if (!token) return reply.status(401).send({ error: 'Not authenticated' });
+      const auth = await AuthService.validateSession(token);
+      if (!auth) return reply.status(401).send({ error: 'Session expired' });
+
+      const { id } = req.params as { id: string };
+      const { targetUserId } = req.body as { targetUserId: string };
+      if (!targetUserId) return reply.status(400).send({ error: 'targetUserId is required' });
+
+      const [room] = await db.select().from(rooms).where(eq(rooms.id, id)).limit(1);
+      if (!room) return reply.status(404).send({ error: 'Room not found' });
+
+      if (room.ownerId !== auth.user.id) {
+        return reply.status(403).send({ error: 'Only the room owner can kick members' });
+      }
+
+      if (targetUserId === auth.user.id) {
+        return reply.status(400).send({ error: 'You cannot kick yourself' });
+      }
+
+      // Remove member from room
+      await db.delete(roomMembers).where(and(eq(roomMembers.roomId, id), eq(roomMembers.userId, targetUserId)));
+
+      // Notify everyone the member left
+      WsGateway.broadcast('room:member_left', { roomId: id, userId: targetUserId });
+      WsGateway.broadcast('voice:peer_left', { roomId: id, userId: targetUserId });
+
+      // Notify the kicked user specifically
+      WsGateway.sendToUser(targetUserId, 'room:kicked', {
+        roomId: id,
+        roomName: room.name,
+        kickedBy: auth.user.username,
+      });
+
+      return { success: true };
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message || 'Failed to kick member' });
+    }
+  });
+
 }

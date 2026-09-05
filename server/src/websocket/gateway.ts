@@ -204,7 +204,7 @@ export class WsGateway {
         isMuted: !!isMuted,
         isDeafened: !!isDeafened,
         isSpeaking: !!isSpeaking,
-      });
+      }, client.userId);
     }
 
     if (type === 'chat:send') {
@@ -275,7 +275,12 @@ export class WsGateway {
     }
   }
 
-  static broadcastToRoom(roomId: string, type: string, data: any) {
-    this.broadcast(type, data);
+  static broadcastToRoom(roomId: string, type: string, data: any, excludeUserId?: string) {
+    const msg = JSON.stringify({ type, data });
+    for (const [ws, c] of this.clients.entries()) {
+      if (c.currentRoomId === roomId && ws.readyState === 1 && (!excludeUserId || c.userId !== excludeUserId)) {
+        ws.send(msg);
+      }
+    }
   }
 }

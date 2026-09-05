@@ -561,16 +561,32 @@ export async function authRoutes(app: FastifyInstance) {
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
 
       const body = UpdateProfileSchema.parse(req.body);
+
+      // Check username uniqueness if changing username
+      if (body.username && body.username !== auth.user.username) {
+        const [existing] = await db
+          .select()
+          .from(users)
+          .where(sql`LOWER(${users.username}) = LOWER(${body.username})`)
+          .limit(1);
+        if (existing && existing.id !== auth.user.id) {
+          return reply.status(409).send({ error: 'This username is already taken. Please choose a different one.' });
+        }
+      }
+
       const [updated] = await db
         .update(users)
         .set({ ...body, updatedAt: new Date() })
         .where(eq(users.id, auth.user.id))
         .returning();
 
+      const tag = getUserTag(updated);
       return {
         user: {
           id: updated.id,
           username: updated.username,
+          tag,
+          userTag: `${updated.username}#${tag}`,
           email: updated.email,
           avatarUrl: updated.avatarUrl,
           bio: updated.bio,

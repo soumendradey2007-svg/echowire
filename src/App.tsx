@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { IconHash, IconUsers, IconUser, IconMic, IconMicOff, IconHeadphones, IconHeadphonesOff, IconPhoneOff, IconPhoneHangup, IconMessageSquare, IconSettings } from './components/Icons';
+import { IconHash, IconUsers, IconUser, IconMic, IconMicOff, IconHeadphones, IconHeadphonesOff, IconPhoneOff, IconPhoneHangup, IconMessageSquare, IconSettings, IconX, IconCheck } from './components/Icons';
 import type { NavView, RightTab, AuthMode } from './types';
 import { apiFetch, setAuthToken } from './lib/api';
 import { wsClient } from './lib/ws';
@@ -13,6 +13,14 @@ import ProfileView from './views/ProfileView';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
 import GlobalMusicBar from './components/GlobalMusicBar';
+
+export interface ToastNotification {
+  id: string;
+  type: 'friend_request' | 'friend_accepted' | 'room_invite' | 'kick' | 'info';
+  title: string;
+  message: string;
+  data?: any;
+}
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -28,8 +36,21 @@ export default function App() {
   const [isDeafened, setIsDeafened] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
-  const [incomingInvite, setIncomingInvite] = useState<any>(null);
   const [invites, setInvites] = useState<any[]>([]);
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+
+  const addToast = (toast: Omit<ToastNotification, 'id'>) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newToast = { ...toast, id };
+    setToasts((prev) => [...prev, newToast]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 10000);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   // Navigation with Browser History integration
   const navigateNav = (view: NavView, push = true) => {
@@ -121,7 +142,7 @@ export default function App() {
       .catch(() => {});
   };
   
-  // Global WebSocket listeners (real-time invites and room updates even when not in a room)
+  // Global WebSocket listeners (real-time invites, friend requests, room updates, and moderation)
   useEffect(() => {
     if (!currentUser) return;
 
@@ -135,7 +156,45 @@ export default function App() {
         expiresAt: inv.expiresAt || (Date.now() + 5 * 60 * 1000),
       };
       setInvites((prev) => [fullInvite, ...prev.filter((x) => x.id !== fullInvite.id && x.roomId !== inv.roomId)]);
-      setIncomingInvite(fullInvite);
+      addToast({
+        type: 'room_invite',
+        title: 'Room Invite',
+        message: `${fullInvite.fromUsername} invited you to join "${fullInvite.roomName}"`,
+        data: fullInvite,
+      });
+    });
+
+    const offFriendReq = wsClient.on('friend:request_received', (data: any) => {
+      loadFriends();
+      addToast({
+        type: 'friend_request',
+        title: 'Friend Request',
+        message: `${data.fromUsername || 'Someone'} sent you a friend request`,
+        data,
+      });
+    });
+
+    const offFriendAccepted = wsClient.on('friend:request_accepted', (data: any) => {
+      loadFriends();
+      addToast({
+        type: 'friend_accepted',
+        title: 'Friend Request Accepted',
+        message: `${data.fromUsername || 'Someone'} accepted your friend request!`,
+        data,
+      });
+    });
+
+    const offKicked = wsClient.on('room:kicked', (data: any) => {
+      if (activeRoomId === data.roomId) {
+        handleDisconnect();
+      }
+      loadRooms();
+      addToast({
+        type: 'kick',
+        title: 'Removed from Room',
+        message: `You were kicked from "${data.roomName || 'the room'}" by ${data.kickedBy || 'the room owner'}`,
+        data,
+      });
     });
 
     const offRoomDeleted = wsClient.on('room:deleted', ({ roomId }: any) => {
@@ -168,6 +227,9 @@ export default function App() {
 
     return () => {
       offInvite();
+      offFriendReq();
+      offFriendAccepted();
+      offKicked();
       offRoomDeleted();
       offMemberLeft();
       offMemberJoined();
@@ -324,19 +386,6 @@ export default function App() {
       }
     });
 
-    const offInvite = wsClient.on('room:invite_received', (inv: any) => {
-      const fullInvite = {
-        id: inv.id || `inv-${Date.now()}`,
-        roomId: inv.roomId,
-        roomName: inv.roomName,
-        fromUserId: inv.fromUserId,
-        fromUsername: inv.fromUsername || 'Friend',
-        expiresAt: inv.expiresAt || (Date.now() + 5 * 60 * 1000),
-      };
-      setInvites((prev) => [fullInvite, ...prev.filter((x) => x.roomId !== inv.roomId)]);
-      setIncomingInvite(fullInvite);
-    });
-
     const offVoice = wsClient.on('voice:state_change', (vs: any) => {
       if (vs.roomId === activeRoomId) {
         setRooms((prev) =>
@@ -395,7 +444,6 @@ export default function App() {
       offVoice();
       offPeerJoined();
       offExistingPeers();
-      offInvite();
       offMemberLeft();
       offMemberJoined();
       offRoomDeleted();
@@ -439,8 +487,8 @@ export default function App() {
         setIsSpeaking(speaking);
         wsClient.send('voice:state_change', {
           roomId: id,
-          isMuted,
-          isDeafened,
+          isMuted: voiceManager.isMuted,
+          isDeafened: voiceManager.isDeafened,
           isSpeaking: speaking,
         });
       });
@@ -523,7 +571,7 @@ export default function App() {
 
   const handleMuteToggle = () => {
     if (isDeafened) {
-      // Discord rule: When deafened, user CANNOT unmute! Must undeafen first.
+      // Rule: When deafened, user CANNOT unmute! Must undeafen first.
       return;
     }
     const next = !isMuted;
@@ -637,16 +685,6 @@ export default function App() {
       />
 
             <main className="flex-1 flex min-w-0 overflow-hidden relative pb-16 sm:pb-0">
-        {incomingInvite && (
-          <TimedInvitePopup
-            invite={incomingInvite}
-            onAccept={() => {
-              handleJoin(incomingInvite.roomId);
-              setIncomingInvite(null);
-            }}
-            onDecline={() => setIncomingInvite(null)}
-          />
-        )}
         {navView === 'rooms' && activeRoom ? (
           <VoiceRoomView
             room={activeRoom}
@@ -677,11 +715,13 @@ export default function App() {
             currentUser={currentUser}
             onBack={() => navigateNav('rooms')}
             onLogout={handleLogout}
+            onProfileUpdate={(u) => setCurrentUser(u)}
           />
         ) : (
           <SettingsView
             currentUser={currentUser}
             onLogout={handleLogout}
+            onProfileUpdate={(u) => setCurrentUser(u)}
           />
         )}
       </main>
@@ -807,71 +847,158 @@ export default function App() {
           }}
         />
       )}
+
+      <ToastContainer
+        toasts={toasts}
+        onDismiss={removeToast}
+        onJoinRoom={handleJoin}
+        onDeclineRoom={handleDeclineInvite}
+        onNavigateNav={navigateNav}
+      />
     </div>
   );
 }
 
-function TimedInvitePopup({ invite, onAccept, onDecline }: { invite: any; onAccept: () => void; onDecline: () => void }) {
-  const [timeLeft, setTimeLeft] = useState(() => Math.max(0, Math.floor((invite.expiresAt - Date.now()) / 1000)));
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.floor((invite.expiresAt - Date.now()) / 1000));
-      setTimeLeft(remaining);
-      if (remaining <= 0) {
-        onDecline();
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [invite]);
-
-  const m = Math.floor(timeLeft / 60);
-  const s = timeLeft % 60;
-  const timeFormatted = `${m}:${s < 10 ? '0' : ''}${s}`;
-  const pct = (timeLeft / 300) * 100;
+function ToastContainer({
+  toasts,
+  onDismiss,
+  onJoinRoom,
+  onDeclineRoom,
+  onNavigateNav,
+}: {
+  toasts: ToastNotification[];
+  onDismiss: (id: string) => void;
+  onJoinRoom: (roomId: string) => void;
+  onDeclineRoom: (inviteId: string) => void;
+  onNavigateNav: (view: NavView) => void;
+}) {
+  if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-5 left-4 right-4 sm:left-auto sm:right-5 sm:w-80 z-50 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-4 animate-in fade-in slide-in-from-top-4">
-      <div className="flex items-start justify-between gap-3 mb-2.5">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-full bg-accent/20 text-accent font-semibold flex items-center justify-center text-xs flex-shrink-0">
-            {invite.fromUsername ? invite.fromUsername.slice(0, 2).toUpperCase() : 'U'}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-zinc-100 text-xs font-semibold truncate">
-              {invite.fromUsername}
-            </p>
-            <p className="text-zinc-400 text-[11px] truncate">
-              invited you to <span className="text-zinc-200 font-medium">{invite.roomName}</span>
-            </p>
-          </div>
-        </div>
-        <span className="text-[10px] text-zinc-500 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800 flex-shrink-0">
-          {timeFormatted}
-        </span>
-      </div>
-
-      <div className="w-full bg-zinc-950 rounded-full h-1 mb-3.5 overflow-hidden">
-        <div
-          className="bg-accent h-full transition-all duration-1000"
-          style={{ width: `${pct}%` }}
+    <div className="fixed bottom-5 right-4 sm:right-6 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none px-2 sm:px-0">
+      {toasts.map((toast) => (
+        <ToastItem
+          key={toast.id}
+          toast={toast}
+          onDismiss={() => onDismiss(toast.id)}
+          onJoinRoom={() => {
+            if (toast.data?.roomId) onJoinRoom(toast.data.roomId);
+            onDismiss(toast.id);
+          }}
+          onDeclineRoom={() => {
+            if (toast.data?.id) onDeclineRoom(toast.data.id);
+            onDismiss(toast.id);
+          }}
+          onViewFriends={() => {
+            onNavigateNav('friends');
+            onDismiss(toast.id);
+          }}
         />
+      ))}
+    </div>
+  );
+}
+
+function ToastItem({
+  toast,
+  onDismiss,
+  onJoinRoom,
+  onDeclineRoom,
+  onViewFriends,
+}: {
+  toast: ToastNotification;
+  onDismiss: () => void;
+  onJoinRoom: () => void;
+  onDeclineRoom: () => void;
+  onViewFriends: () => void;
+}) {
+  const [progress, setProgress] = useState(100);
+
+  useEffect(() => {
+    const startTime = Date.now();
+    const duration = 10000;
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const rem = Math.max(0, 100 - (elapsed / duration) * 100);
+      setProgress(rem);
+      if (rem <= 0) {
+        clearInterval(interval);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
+
+  const isInvite = toast.type === 'room_invite';
+  const isFriendReq = toast.type === 'friend_request';
+  const isFriendAccepted = toast.type === 'friend_accepted';
+  const isKick = toast.type === 'kick';
+
+  return (
+    <div className="pointer-events-auto bg-zinc-900/95 border border-zinc-800 backdrop-blur-md rounded-xl shadow-2xl overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-4">
+      <div className="p-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold ${
+              isInvite ? 'bg-accent/20 text-accent' :
+              isFriendReq ? 'bg-emerald-500/20 text-emerald-400' :
+              isFriendAccepted ? 'bg-emerald-500/20 text-emerald-400' :
+              isKick ? 'bg-red-500/20 text-red-400' :
+              'bg-zinc-800 text-zinc-300'
+            }`}>
+              {isInvite ? '🎧' : isFriendReq ? '👋' : isFriendAccepted ? '✅' : isKick ? '⚠️' : '🔔'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-zinc-100 text-xs font-semibold truncate">{toast.title}</p>
+              <p className="text-zinc-400 text-[11px] leading-relaxed line-clamp-2 mt-0.5">{toast.message}</p>
+            </div>
+          </div>
+          <button
+            onClick={onDismiss}
+            className="text-zinc-500 hover:text-zinc-300 p-1 rounded hover:bg-zinc-800 transition-colors cursor-pointer flex-shrink-0"
+            title="Close"
+          >
+            <IconX size={13} />
+          </button>
+        </div>
+
+        {/* Action buttons */}
+        {isInvite && (
+          <div className="flex items-center gap-2 mt-3 pt-2 border-t border-zinc-800/80">
+            <button
+              onClick={onDeclineRoom}
+              className="flex-1 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
+            >
+              Decline
+            </button>
+            <button
+              onClick={onJoinRoom}
+              className="flex-1 py-1.5 rounded bg-accent hover:bg-accent/90 text-white text-xs font-semibold transition-colors cursor-pointer shadow"
+            >
+              Accept & Join
+            </button>
+          </div>
+        )}
+
+        {isFriendReq && (
+          <div className="flex items-center justify-end gap-2 mt-2.5 pt-2 border-t border-zinc-800/80">
+            <button
+              onClick={onViewFriends}
+              className="px-3 py-1.5 rounded bg-accent/20 hover:bg-accent/30 text-accent text-xs font-semibold transition-colors cursor-pointer"
+            >
+              View Requests
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onDecline}
-          className="flex-1 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
-        >
-          Decline
-        </button>
-        <button
-          onClick={onAccept}
-          className="flex-1 py-1.5 rounded bg-accent hover:bg-accent/90 text-white text-xs font-semibold transition-colors cursor-pointer shadow"
-        >
-          Accept & Join
-        </button>
+      {/* 10-second auto-dismiss progress bar */}
+      <div className="w-full bg-zinc-950 h-0.5 overflow-hidden">
+        <div
+          className={`h-full transition-all duration-100 linear ${
+            isInvite ? 'bg-accent' : isFriendReq || isFriendAccepted ? 'bg-emerald-400' : isKick ? 'bg-red-400' : 'bg-zinc-500'
+          }`}
+          style={{ width: `${progress}%` }}
+        />
       </div>
     </div>
   );

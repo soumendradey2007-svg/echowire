@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { WsGateway } from '../websocket/gateway';
 import { FriendRequestSchema } from '../shared/validators';
 import { AuthService } from '../services/auth.service';
 import { RateLimiter } from '../services/rate-limit.service';
@@ -127,6 +128,12 @@ export async function friendRoutes(app: FastifyInstance) {
         status: 'pending',
       });
 
+      // Push real-time friend request notification
+      WsGateway.sendToUser(target.id, 'friend:request_received', {
+        fromUserId: auth.user.id,
+        fromUsername: auth.user.username,
+      });
+
       return { success: true, message: 'Friend request sent!' };
     } catch (err) {
       return reply.status(500).send({ error: err.message || 'Failed to send friend request' });
@@ -140,14 +147,23 @@ export async function friendRoutes(app: FastifyInstance) {
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
 
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
+      const [friendship] = await db.select().from(friendships).where(and(eq(friendships.id, id), eq(friendships.addresseeId, auth.user.id))).limit(1);
+      if (!friendship) return reply.status(404).send({ error: 'Friend request not found' });
+
       await db
         .update(friendships)
         .set({ status: 'accepted', updatedAt: new Date() })
         .where(and(eq(friendships.id, id), eq(friendships.addresseeId, auth.user.id)));
 
+      // Notify the requester that their request was accepted
+      WsGateway.sendToUser(friendship.requesterId, 'friend:request_accepted', {
+        fromUserId: auth.user.id,
+        fromUsername: auth.user.username,
+      });
+
       return { success: true };
-    } catch (err) {
+    } catch (err: any) {
       return reply.status(500).send({ error: err.message || 'Failed to accept request' });
     }
   });

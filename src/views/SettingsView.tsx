@@ -6,6 +6,7 @@ import { voiceManager } from '../lib/voice'
 interface Props {
   currentUser?: any
   onLogout?: () => void
+  onProfileUpdate?: (user: any) => void
 }
 
 type Section = 'account' | 'voice' | 'notifications' | 'privacy' | 'appearance'
@@ -18,7 +19,7 @@ const SECTIONS: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: 'appearance', label: 'Appearance', icon: <IconEye size={15} /> },
 ]
 
-export default function SettingsView({ currentUser, onLogout }: Props) {
+export default function SettingsView({ currentUser, onLogout, onProfileUpdate }: Props) {
   const [section, setSection] = useState<Section>('account')
 
   return (
@@ -39,11 +40,11 @@ export default function SettingsView({ currentUser, onLogout }: Props) {
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl px-10 py-8">
-          {section === 'account' && <AccountSection currentUser={currentUser} onLogout={onLogout} />}
+          {section === 'account' && <AccountSection currentUser={currentUser} onLogout={onLogout} onProfileUpdate={onProfileUpdate} />}
           {section === 'voice' && <VoiceSection />}
           {section === 'notifications' && <NotificationsSection />}
           {section === 'privacy' && <PrivacySection />}
-          {section === 'appearance' && <AppearanceSection />}
+          {section === 'appearance' && <AppearanceSection currentUser={currentUser} onProfileUpdate={onProfileUpdate} />}
         </div>
       </div>
     </div>
@@ -101,7 +102,7 @@ function Select({ value, onChange, options }: { value: string; onChange: (v: str
 
 const inputCls = 'bg-zinc-900 border border-zinc-800 text-zinc-100 text-sm rounded px-3 py-2 outline-none focus:border-accent placeholder:text-zinc-600 transition-colors'
 
-function AccountSection({ currentUser, onLogout }: { currentUser?: any; onLogout?: () => void }) {
+function AccountSection({ currentUser, onLogout, onProfileUpdate }: { currentUser?: any; onLogout?: () => void; onProfileUpdate?: (u: any) => void }) {
   const [username, setUsername] = useState(currentUser?.username || '')
   const [bio, setBio] = useState(currentUser?.bio || '')
   const [currentPassword, setCurrentPassword] = useState('')
@@ -113,10 +114,13 @@ function AccountSection({ currentUser, onLogout }: { currentUser?: any; onLogout
 
   const handleSaveProfile = async () => {
     try {
-      await apiFetch('/api/auth/profile', {
+      const res = await apiFetch('/api/auth/profile', {
         method: 'PATCH',
         body: JSON.stringify({ username, bio }),
       });
+      if (res?.user) {
+        onProfileUpdate?.({ ...currentUser, ...res.user });
+      }
       setProfileMsg('Profile updated successfully!');
       setTimeout(() => setProfileMsg(''), 2000);
     } catch (err: any) {
@@ -227,7 +231,7 @@ function VoiceSection() {
       <SettingRow label="Output device">
         <Select value={outputDevice} onChange={setOutputDevice} options={deviceOptions} />
       </SettingRow>
-      <SettingRow label="Discord-Grade Noise Suppression" description="Sub-bass rumble cut, AC hum filter, formant enhancer & keyboard clatter suppression">
+      <SettingRow label="Advanced Noise Suppression" description="Sub-bass rumble cut, AC hum filter, formant enhancer & keyboard clatter suppression">
         <Toggle checked={noiseSuppression} onChange={handleToggleNC} />
       </SettingRow>
       <SettingRow label="Echo cancellation" description="Prevent audio feedback & acoustic bleed">
@@ -274,13 +278,51 @@ function PrivacySection() {
   )
 }
 
-function AppearanceSection() {
+function AppearanceSection({ currentUser, onProfileUpdate }: { currentUser?: any; onProfileUpdate?: (u: any) => void }) {
   const [theme, setTheme] = useState('dark')
+  const [status, setStatus] = useState(currentUser?.status || 'online')
+  const [statusMsg, setStatusMsg] = useState('')
+
+  const handleStatusChange = async (newStatus: string) => {
+    setStatus(newStatus)
+    setStatusMsg('')
+    try {
+      const res = await apiFetch('/api/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (res?.user) {
+        onProfileUpdate?.({ ...currentUser, ...res.user })
+      }
+      setStatusMsg('Status updated!')
+      setTimeout(() => setStatusMsg(''), 2500)
+    } catch (err: any) {
+      alert(err.message || 'Failed to update status')
+      setStatus(currentUser?.status || 'online')
+    }
+  }
 
   return (
     <div>
-      <SectionTitle title="Appearance" />
-      <SettingRow label="Theme">
+      <SectionTitle title="Appearance" description="Configure your appearance, presence status and app theme." />
+      <SettingRow
+        label="Online Status"
+        description="Choose how you appear to others across EchoWire"
+      >
+        <div className="flex items-center gap-2.5">
+          <Select
+            value={status}
+            onChange={handleStatusChange}
+            options={[
+              { value: 'online', label: '🟢 Online' },
+              { value: 'dnd', label: '💤 Do Not Disturb' },
+              { value: 'in_room', label: '🎧 In Room' },
+            ]}
+          />
+          {statusMsg && <span className="text-xs text-emerald-400 font-medium">{statusMsg}</span>}
+        </div>
+      </SettingRow>
+      <SettingRow label="Theme" description="Select application theme">
         <Select
           value={theme}
           onChange={setTheme}

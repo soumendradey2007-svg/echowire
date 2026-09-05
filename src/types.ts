@@ -25,7 +25,7 @@ export interface Friend {
   username: string
   initials: string
   color: string
-  status: 'online' | 'offline' | 'away'
+  status: 'online' | 'offline' | 'away' | 'dnd' | 'in_room'
   state: 'friend' | 'pending-in' | 'pending-out' | 'blocked'
   location?: string
 }

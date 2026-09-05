@@ -142,7 +142,7 @@ export class VoiceManager {
 
       this.sourceNode = this.audioContext.createMediaStreamSource(this.rawStream);
 
-      // --- DISCORD-GRADE MULTI-STAGE DSP CHAIN ---
+      // --- ADVANCED MULTI-STAGE DSP CHAIN ---
       // 1. Dual-stage Cascading 24dB/octave Sub-bass Butterworth Filter (85Hz)
       // Eliminates table vibrations, desk knocks, AC air turbulence, phone buzzing
       this.highpassFilter1 = this.audioContext.createBiquadFilter();

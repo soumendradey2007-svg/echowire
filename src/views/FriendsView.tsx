@@ -284,11 +284,13 @@ function FriendRow({
 }) {
   const [copied, setCopied] = useState(false);
 
-  const statusColor = {
+  const statusColor: Record<string, string> = {
     online: 'bg-online',
     away: 'bg-away',
+    dnd: 'bg-dnd',
+    in_room: 'bg-inroom',
     offline: 'bg-zinc-600',
-  }[friend.status]
+  }
 
   const handleCopyId = () => {
     navigator.clipboard.writeText(friend.userId);
@@ -303,7 +305,20 @@ function FriendRow({
       <div className="relative flex-shrink-0">
         <Avatar initials={friend.initials} color={friend.color} />
         {friend.state === 'friend' && (
-          <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-zinc-950 ${statusColor}`} />
+          friend.status === 'dnd' ? (
+            <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[9px] leading-none shadow-sm" title="Do Not Disturb">
+              💤
+            </span>
+          ) : friend.status === 'in_room' ? (
+            <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-purple-950/80 border border-purple-500/60 flex items-center justify-center text-purple-300 shadow-sm" title="In Voice Room">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+                <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+              </svg>
+            </span>
+          ) : (
+            <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-zinc-950 ${statusColor[friend.status] || 'bg-online'}`} title={friend.status || 'Online'} />
+          )
         )}
       </div>
 
@@ -317,7 +332,7 @@ function FriendRow({
           {friend.state === 'pending-out' && 'Request sent'}
           {friend.state === 'blocked' && 'Blocked'}
           {friend.state === 'friend' && (
-            friend.location ? `In ${friend.location}` : friend.status === 'away' ? 'Away' : friend.status === 'offline' ? 'Offline' : 'Online'
+            friend.location ? `In ${friend.location}` : friend.status === 'dnd' ? 'Do Not Disturb' : friend.status === 'in_room' ? 'In Room' : friend.status === 'away' ? 'Away' : friend.status === 'offline' ? 'Offline' : 'Online'
           )}
         </p>
       </div>

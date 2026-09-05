@@ -1,14 +1,49 @@
 import { useState } from 'react'
 import { IconUser, IconLogOut, IconChevronLeft } from '../components/Icons'
+import { apiFetch } from '../lib/api'
 
 interface Props {
   currentUser: any
   onBack: () => void
   onLogout: () => void
+  onProfileUpdate?: (user: any) => void
 }
 
-export default function ProfileView({ currentUser, onBack, onLogout }: Props) {
+const inputCls = 'bg-zinc-900 border border-zinc-800 text-zinc-100 text-sm rounded px-3 py-2 outline-none focus:border-accent placeholder:text-zinc-600 transition-colors'
+
+function StatusDot({ status }: { status: string }) {
+  if (status === 'dnd') {
+    return (
+      <span className="w-4 h-4 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center text-[9px] leading-none shadow-sm flex-shrink-0" title="Do Not Disturb">
+        💤
+      </span>
+    )
+  }
+  if (status === 'in_room') {
+    return (
+      <span className="w-4 h-4 rounded-full bg-purple-950/80 border border-purple-500/60 flex items-center justify-center text-purple-300 shadow-sm flex-shrink-0" title="In Voice Room">
+        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+          <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+        </svg>
+      </span>
+    )
+  }
+  const colorMap: Record<string, string> = {
+    online: 'bg-online',
+    away: 'bg-away',
+    offline: 'bg-zinc-600',
+  }
+  return <span className={`w-2 h-2 rounded-full ${colorMap[status] || 'bg-online'} flex-shrink-0`} />
+}
+
+export default function ProfileView({ currentUser, onBack, onLogout, onProfileUpdate }: Props) {
   const [copied, setCopied] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editUsername, setEditUsername] = useState(currentUser?.username || '')
+  const [editBio, setEditBio] = useState(currentUser?.bio || '')
+  const [saving, setSaving] = useState(false)
+  const [editMsg, setEditMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
   const username = currentUser?.username || 'User'
   const initials = username.slice(0, 2).toUpperCase()
@@ -17,6 +52,7 @@ export default function ProfileView({ currentUser, onBack, onLogout }: Props) {
   const bio = currentUser?.bio || ''
   const isGuest = currentUser?.isGuest || false
   const isVerified = currentUser?.isEmailVerified || false
+  const status = currentUser?.status || 'online'
   const createdAt = currentUser?.createdAt
     ? new Date(currentUser.createdAt).toLocaleDateString('en-US', {
         year: 'numeric',
@@ -31,6 +67,34 @@ export default function ProfileView({ currentUser, onBack, onLogout }: Props) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
+  }
+
+  const handleSaveProfile = async () => {
+    setSaving(true)
+    setEditMsg(null)
+    try {
+      const res = await apiFetch('/api/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ username: editUsername, bio: editBio || null }),
+      })
+      if (res.user) {
+        onProfileUpdate?.({ ...currentUser, ...res.user })
+      }
+      setEditMsg({ type: 'ok', text: 'Profile updated!' })
+      setEditing(false)
+      setTimeout(() => setEditMsg(null), 3000)
+    } catch (err: any) {
+      setEditMsg({ type: 'err', text: err.message || 'Failed to update profile' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const statusLabel: Record<string, string> = {
+    online: 'Online',
+    dnd: 'Do Not Disturb',
+    away: 'Away',
+    offline: 'Offline',
   }
 
   return (
@@ -105,8 +169,8 @@ export default function ProfileView({ currentUser, onBack, onLogout }: Props) {
             <div className="flex items-center justify-between">
               <span className="text-zinc-500 text-xs uppercase tracking-wider font-medium">Status</span>
               <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-online" />
-                <span className="text-zinc-300 text-sm capitalize">{currentUser?.status || 'online'}</span>
+                <StatusDot status={status} />
+                <span className="text-zinc-300 text-sm">{statusLabel[status] || 'Online'}</span>
               </div>
             </div>
 
@@ -127,6 +191,62 @@ export default function ProfileView({ currentUser, onBack, onLogout }: Props) {
               </button>
             </div>
           </div>
+
+          {/* Edit Profile */}
+          {!isGuest && (
+            <div className="border-t border-zinc-800 pt-4">
+              {!editing ? (
+                <button
+                  onClick={() => { setEditing(true); setEditUsername(username); setEditBio(bio); }}
+                  className="text-sm text-accent hover:text-accent/80 font-medium transition-colors cursor-pointer"
+                >
+                  Edit Profile
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-zinc-400 text-xs font-medium mb-1">Username</label>
+                    <input
+                      className={`${inputCls} w-full`}
+                      value={editUsername}
+                      onChange={(e) => setEditUsername(e.target.value)}
+                      maxLength={32}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-zinc-400 text-xs font-medium mb-1">Bio</label>
+                    <input
+                      className={`${inputCls} w-full`}
+                      value={editBio}
+                      onChange={(e) => setEditBio(e.target.value)}
+                      placeholder="Tell people about yourself"
+                      maxLength={250}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={saving}
+                      className="text-sm font-medium bg-accent text-white px-4 py-1.5 rounded hover:bg-accent/90 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => { setEditing(false); setEditMsg(null); }}
+                      className="text-sm text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+              {editMsg && (
+                <p className={`text-xs mt-2 ${editMsg.type === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {editMsg.text}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Divider */}
           <div className="border-t border-zinc-800 pt-4">
