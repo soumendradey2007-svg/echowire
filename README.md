@@ -80,9 +80,12 @@ EchoWire is an open-source, lightweight communication platform designed for high
 - **Zero Media Costs ($0 Bills)**: Direct WebRTC P2P mesh completely bypasses centralized media servers.
 
 ### ⚡ Instant Visual Feedback & Top Progress Bar
-- **Global Network Activity Interceptor**: Tracks all outbound API requests in `src/lib/api.ts` via an active request bus (`onNetworkLoading`).
+- **Global Network Activity Interceptor**: Tracks outbound user-initiated API requests in `src/lib/api.ts` via an active request bus (`onNetworkLoading`).
 - **Top Glowing Progress Bar (`TopLoadingBar`)**: An indigo-to-accent neon beam glides across the top edge of the viewport the moment any network request begins, hitting 100% on completion.
-- **3-Second Reassurance Banner**: Automatically presents a floating pill (*"Connecting to EchoWire server..."*) if a request takes longer than 3 seconds (e.g. cold-booting servers).
+- **Single-Cycle Animation Lock & Anti-Looping**: Uses a cycle lock (`isRunningRef`) and strict interval cleanup to ensure concurrent requests smoothly ride a single progress cycle without looping 5–6 times or jumping backwards.
+- **Silent Background Hydration**: Periodic background state sync (`/api/auth/me`, room list, friend list) passes `{ silent: true }` to keep the UI clean, quiet, and flicker-free.
+- **15-Second Safety Watchdog**: An automated timeout resets network request counters if a connection drops or hangs, guaranteeing the loading state never freezes on screen.
+- **4.5-Second Reassurance Banner**: Automatically presents a floating pill (*"Connecting to EchoWire server..."*) during genuine slow or cold-boot operations and cleanly dismisses on resolution.
 - **Per-Button Micro-Interactions**: Inline animated SVG spinners and disabled states on room joining (*"Joining..."*), room creation (*"Creating..."*), authentication (*"Signing in..."*, *"Creating account..."*), and friend/invite actions.
 - **Fluid Transitions**: Subtle fade-in animations when switching views for a smooth, app-like feel.
 

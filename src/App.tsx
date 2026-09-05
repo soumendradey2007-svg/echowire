@@ -135,7 +135,7 @@ export default function App() {
   }, [currentUser, activeRoomId]);
 
   const loadInvites = () => {
-    apiFetch('/api/rooms/invites')
+    apiFetch('/api/rooms/invites', { silent: true })
       .then((data) => {
         const valid = (data.invites || []).filter((inv: any) => inv.expiresAt > Date.now());
         setInvites(valid);
@@ -300,19 +300,19 @@ export default function App() {
   }, []);
 
   const loadRooms = () => {
-    apiFetch('/api/rooms')
+    apiFetch('/api/rooms', { silent: true })
       .then((data) => setRooms(data.rooms || []))
       .catch(console.error);
   };
 
   const loadFriends = () => {
-    apiFetch('/api/friends')
+    apiFetch('/api/friends', { silent: true })
       .then((data) => setFriends(data.friends || []))
       .catch(console.error);
   };
 
   useEffect(() => {
-    apiFetch('/api/auth/me')
+    apiFetch('/api/auth/me', { silent: true })
       .then((data) => {
         setCurrentUser(data.user);
         wsClient.connect();
@@ -634,7 +634,6 @@ export default function App() {
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center bg-zinc-950 text-zinc-400">
-        <TopLoadingBar />
         <p className="text-sm">Connecting to EchoWire...</p>
       </div>
     );

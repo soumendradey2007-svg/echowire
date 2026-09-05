@@ -403,14 +403,17 @@ Feature 5: Global Network Activity Tracker & Instant Button Feedback
    Without visual feedback, users assume the website is frozen or ignored their click, leading to
    frantic double-clicking.
 2. In src/lib/api.ts, a global request counter (activeRequestsCount) wraps every single apiFetch()
-   request in a try...finally block. Whenever network traffic starts or stops, an event listener
-   onNetworkLoading alerts UI subscribers with zero prop-drilling.
+   request in a try...finally block. Background hydration requests (such as refreshing friends or
+   room lists) utilize a { silent: true } flag so they do not interrupt the user experience, while
+   user clicks trigger instant visual feedback. A 15-second safety watchdog prevents the counter
+   from ever getting permanently stuck on dropped connections.
 3. Mounted at the root of the app (TopLoadingBar), an indigo-to-accent laser bar glides across the
-   top edge of the browser window the millisecond any network request begins, and smoothly hits 100%
-   when all requests finish.
-4. If an operation takes longer than 3 seconds (such as a sleeping backend spinning up), a gentle
-   floating badge appears: "Connecting to EchoWire server..." with a spinning loader, giving users
-   clarity and confidence.
+   top edge of the browser window. Using a single continuous animation lock (isRunningRef), concurrent
+   or chained requests advance smoothly without looping, jumping back to the start, or leaking
+   intervals, and cleanly hits 100% when all active operations finish.
+4. If an active user operation takes longer than 4.5 seconds (such as a cold backend waking up),
+   a gentle floating badge appears: "Connecting to EchoWire server..." with a spinning loader,
+   giving users clarity and confidence.
 5. High-impact buttons (Sign In, Create Room, Join Room, Accept Friend, Decline, Invite to Room)
    immediately display an inline spinning icon, change text (e.g., "Joining...", "Creating..."), and
    disable re-clicking to eliminate duplicate requests.

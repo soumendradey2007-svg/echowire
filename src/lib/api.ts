@@ -34,6 +34,7 @@ export function setAuthToken(token: string | null, rememberMe = true) {
 }
 
 let activeRequestsCount = 0;
+let watchdogTimer: any = null;
 const loadingListeners = new Set<(isLoading: boolean, activeCount: number) => void>();
 
 export function onNetworkLoading(listener: (isLoading: boolean, activeCount: number) => void): () => void {
@@ -44,7 +45,27 @@ export function onNetworkLoading(listener: (isLoading: boolean, activeCount: num
   };
 }
 
+function updateWatchdog() {
+  if (activeRequestsCount > 0) {
+    if (!watchdogTimer) {
+      watchdogTimer = setTimeout(() => {
+        if (activeRequestsCount > 0) {
+          activeRequestsCount = 0;
+          notifyLoadingListeners();
+        }
+        watchdogTimer = null;
+      }, 15000);
+    }
+  } else {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
+  }
+}
+
 function notifyLoadingListeners() {
+  updateWatchdog();
   const isLoading = activeRequestsCount > 0;
   for (const listener of loadingListeners) {
     try {
@@ -53,9 +74,16 @@ function notifyLoadingListeners() {
   }
 }
 
-export async function apiFetch<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  activeRequestsCount++;
-  notifyLoadingListeners();
+export interface ApiFetchOptions extends RequestInit {
+  silent?: boolean;
+}
+
+export async function apiFetch<T = any>(endpoint: string, options: ApiFetchOptions = {}): Promise<T> {
+  const isSilent = options.silent === true;
+  if (!isSilent) {
+    activeRequestsCount++;
+    notifyLoadingListeners();
+  }
 
   try {
     const method = (options.method || 'GET').toUpperCase();
@@ -118,8 +146,10 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestInit =
     }
     return data;
   } finally {
-    activeRequestsCount = Math.max(0, activeRequestsCount - 1);
-    notifyLoadingListeners();
+    if (!isSilent) {
+      activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+      notifyLoadingListeners();
+    }
   }
 }
 
