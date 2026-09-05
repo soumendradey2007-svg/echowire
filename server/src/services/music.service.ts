@@ -1,26 +1,21 @@
 import type { MusicTrackMetadata, EphemeralMusicState } from '../shared/types';
 
 export class MusicService {
-  private static rooms = new Map<string, EphemeralMusicState>();
+  private static crossRoomState: EphemeralMusicState = {
+    roomId: 'global',
+    track: null,
+    isPlaying: false,
+    basePositionSeconds: 0,
+    updatedAtServerTime: Date.now(),
+    queue: [],
+  };
 
-  static getState(roomId: string): EphemeralMusicState {
-    let state = this.rooms.get(roomId);
-    if (!state) {
-      state = {
-        roomId,
-        track: null,
-        isPlaying: false,
-        basePositionSeconds: 0,
-        updatedAtServerTime: Date.now(),
-        queue: [],
-      };
-      this.rooms.set(roomId, state);
-    }
-    return state;
+  static getState(_roomId?: string): EphemeralMusicState {
+    return this.crossRoomState;
   }
 
-  static control(roomId: string, action: string, position?: number, track?: any): EphemeralMusicState {
-    const s = this.getState(roomId);
+  static control(_roomId: string, action: string, position?: number, track?: any): EphemeralMusicState {
+    const s = this.crossRoomState;
     const now = Date.now();
 
     if (action === 'play') {

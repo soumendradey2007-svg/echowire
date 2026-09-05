@@ -242,15 +242,15 @@ export class WsGateway {
     }
 
     if (type === 'music:get_state') {
-      const { roomId } = data;
+      const { roomId } = data || {};
       const state = MusicService.getState(roomId);
       client.ws.send(JSON.stringify({ type: 'music:sync', data: state }));
     }
 
     if (type === 'music:control') {
-      const { roomId, action, positionSeconds, track } = data;
-      const updated = MusicService.control(roomId, action, positionSeconds, track);
-      this.broadcastToRoom(roomId, 'music:sync', updated);
+      const { roomId, action, positionSeconds, track } = data || {};
+      const updated = MusicService.control(roomId || 'global', action, positionSeconds, track);
+      this.broadcast('music:sync', updated);
     }
   }
 

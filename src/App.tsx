@@ -12,6 +12,7 @@ import SettingsView from './views/SettingsView';
 import ProfileView from './views/ProfileView';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
+import GlobalMusicBar from './components/GlobalMusicBar';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -174,6 +175,25 @@ export default function App() {
   }, [currentUser?.id, activeRoomId]);
 
   const [roomMusicState, setRoomMusicState] = useState<any>({ track: null, isPlaying: false, queue: [] });
+
+  // Dedicated Cross-Room Music Synchronization
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const offMusic = wsClient.on('music:sync', (sync: any) => {
+      if (sync) {
+        setRoomMusicState(sync);
+      }
+    });
+
+    // Request initial music state immediately
+    wsClient.send('music:get_state', { roomId: activeRoomId || 'global' });
+
+    return () => {
+      offMusic();
+    };
+  }, [currentUser?.id, activeRoomId]);
+
   const [mobileAudioBlocked, setMobileAudioBlocked] = useState(false);
 
   useEffect(() => {
@@ -317,12 +337,6 @@ export default function App() {
       setIncomingInvite(fullInvite);
     });
 
-        const offMusic = wsClient.on('music:sync', (sync: any) => {
-      if (sync) {
-        setRoomMusicState(sync);
-      }
-    });
-
     const offVoice = wsClient.on('voice:state_change', (vs: any) => {
       if (vs.roomId === activeRoomId) {
         setRooms((prev) =>
@@ -385,7 +399,6 @@ export default function App() {
       offMemberLeft();
       offMemberJoined();
       offRoomDeleted();
-      offMusic();
     };
   }, [activeRoomId]);
 
@@ -770,7 +783,7 @@ export default function App() {
         </div>
       )}
 
-      {activeRoom && rightOpen && (
+      {currentUser && rightOpen && (activeRoom || rightTab === 'music') && (
         <RightPanel
           room={activeRoom}
           activeRoomId={activeRoomId}
@@ -781,6 +794,17 @@ export default function App() {
           onClose={() => setRightOpen(false)}
           onSendMessage={handleSendMessage}
           currentUser={currentUser}
+        />
+      )}
+
+      {currentUser && (
+        <GlobalMusicBar
+          musicState={roomMusicState}
+          activeRoomId={activeRoomId}
+          onOpenMusicPanel={() => {
+            setRightTab('music');
+            setRightOpen(true);
+          }}
         />
       )}
     </div>

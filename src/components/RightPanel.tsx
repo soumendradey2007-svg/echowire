@@ -2,9 +2,10 @@ import React, { useState, useRef, useEffect } from 'react'
 import type { Room, Message, RightTab } from '../types'
 import { IconX, IconUsers, IconMessageSquare, IconMusic, IconSend, IconPlay, IconPause, IconVolume2, IconMicOff, IconPlus, IconSkipForward, IconSearch, IconHeadphonesOff } from './Icons'
 import { wsClient } from '../lib/ws'
+import { apiFetch } from '../lib/api'
 
 interface Props {
-  room: Room
+  room?: Room | null
   activeRoomId?: string | null
   sharedMusicState?: any
   messages: Message[]
@@ -23,9 +24,11 @@ function formatTime(secs: number) {
 }
 
 export default function RightPanel({ room, activeRoomId, sharedMusicState, messages, tab, onTabChange, onClose, onSendMessage, currentUser }: Props) {
-  const tabs: { id: RightTab; icon: React.ReactNode; label: string }[] = [
+  const tabs: { id: RightTab; icon: React.ReactNode; label: string }[] = room ? [
     { id: 'members', icon: <IconUsers size={14} />, label: 'Members' },
     { id: 'chat', icon: <IconMessageSquare size={14} />, label: 'Chat' },
+    { id: 'music', icon: <IconMusic size={14} />, label: 'Music' },
+  ] : [
     { id: 'music', icon: <IconMusic size={14} />, label: 'Music' },
   ]
 
@@ -50,9 +53,9 @@ export default function RightPanel({ room, activeRoomId, sharedMusicState, messa
       </div>
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        {tab === 'members' && <MembersTab room={room} />}
+        {tab === 'members' && room && <MembersTab room={room} />}
         {tab === 'chat' && <ChatTab messages={messages} onSendMessage={onSendMessage} currentUser={currentUser} />}
-        {tab === 'music' && <MusicTab activeRoomId={activeRoomId || room.id} sharedMusicState={sharedMusicState} currentUser={currentUser} />}
+        {tab === 'music' && <MusicTab activeRoomId={activeRoomId || room?.id || 'global'} sharedMusicState={sharedMusicState} currentUser={currentUser} />}
       </div>
     </aside>
   )
@@ -184,26 +187,15 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(210)
   const [volume, setVolume] = useState(75)
   const progressBarRef = useRef<HTMLDivElement | null>(null)
-  const playerRef = useRef<any>(null)
 
-  // Load YouTube IFrame API script
+  // Request cross-room music state
   useEffect(() => {
-    if (!(window as any).YT) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      document.body.appendChild(tag);
-    }
-  }, []);
-
-  // Request room music state
-  useEffect(() => {
-    if (activeRoomId) {
-      wsClient.send('music:get_state', { roomId: activeRoomId });
-    }
+    wsClient.send('music:get_state', { roomId: activeRoomId || 'global' });
 
     const unsub = wsClient.on('music:sync', (sync: any) => {
       if (sync) {
@@ -211,6 +203,8 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
           track: sync.track,
           isPlaying: !!sync.isPlaying,
           queue: sync.queue || [],
+          basePositionSeconds: sync.basePositionSeconds || 0,
+          updatedAtServerTime: sync.updatedAtServerTime || Date.now(),
         });
       }
     });
@@ -218,7 +212,7 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
     return () => unsub();
   }, [activeRoomId]);
 
-    useEffect(() => {
+  useEffect(() => {
     if (sharedMusicState && sharedMusicState.track !== undefined) {
       setMusicState(sharedMusicState);
     }
@@ -226,136 +220,51 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
 
   const current = musicState.track;
 
-  // Initialize and update YouTube Player for full length track
-  useEffect(() => {
-    if (!current) return;
-
-    const initPlayer = () => {
-      const YT = (window as any).YT;
-      if (!YT || !YT.Player) {
-        setTimeout(initPlayer, 250);
-        return;
-      }
-
-      const videoId = current.providerTrackId;
-      if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-        try {
-          playerRef.current.loadVideoById(videoId);
-          playerRef.current.setVolume(volume);
-          if (musicState.isPlaying) {
-            playerRef.current.playVideo();
-          } else {
-            playerRef.current.pauseVideo();
-          }
-        } catch {}
-      } else {
-        const container = document.getElementById('yt-full-player');
-        if (container) {
-          playerRef.current = new YT.Player('yt-full-player', {
-            height: '100%',
-            width: '100%',
-            videoId: videoId,
-            playerVars: {
-              autoplay: musicState.isPlaying ? 1 : 0,
-              controls: 0,
-              disablekb: 1,
-              modestbranding: 1,
-              rel: 0,
-            },
-            playerVars: {
-              autoplay: musicState.isPlaying ? 1 : 0,
-              controls: 0,
-              disablekb: 1,
-              modestbranding: 1,
-              rel: 0,
-              playsinline: 1,
-            },
-            events: {
-              onReady: (e: any) => {
-                e.target.setVolume(volume);
-                try {
-                  if (typeof e.target.setPlaybackQuality === 'function') {
-                    e.target.setPlaybackQuality('small');
-                  }
-                } catch {}
-                if (musicState.isPlaying) e.target.playVideo();
-              },
-              onStateChange: (e: any) => {
-                // 0 means Track Ended naturally
-                if (e.data === 0) {
-                  handleSkip();
-                }
-              },
-            },
-          });
-        }
-      }
-    };
-
-    initPlayer();
-  }, [current?.providerTrackId]);
-
-  // Sync play/pause with YouTube player
-  useEffect(() => {
-    if (playerRef.current) {
-      try {
-        if (musicState.isPlaying && typeof playerRef.current.playVideo === 'function') {
-          playerRef.current.playVideo();
-        } else if (!musicState.isPlaying && typeof playerRef.current.pauseVideo === 'function') {
-          playerRef.current.pauseVideo();
-        }
-      } catch {}
-    }
-  }, [musicState.isPlaying]);
-
-  // Update volume
-  useEffect(() => {
-    if (playerRef.current && typeof playerRef.current.setVolume === 'function') {
-      try {
-        playerRef.current.setVolume(volume);
-      } catch {}
-    }
-  }, [volume]);
-
   // Track real timeline time & duration every 500ms
   useEffect(() => {
     const timer = setInterval(() => {
-      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+      const yt = (window as any).__echowire_yt;
+      if (yt && typeof yt.getCurrentTime === 'function') {
         try {
-          const cur = playerRef.current.getCurrentTime();
-          const dur = playerRef.current.getDuration() || current?.durationSeconds || 210;
+          const cur = yt.getCurrentTime();
+          const dur = yt.getDuration() || current?.durationSeconds || 210;
           if (dur > 0) {
             setCurrentTime(cur);
             setDuration(dur);
           }
         } catch {}
+      } else if (musicState.isPlaying && musicState.updatedAtServerTime) {
+        const elapsed = (Date.now() - musicState.updatedAtServerTime) / 1000;
+        const cur = (musicState.basePositionSeconds || 0) + elapsed;
+        const dur = current?.durationSeconds || 210;
+        setCurrentTime(Math.min(cur, dur));
+        setDuration(dur);
       }
     }, 500);
 
     return () => clearInterval(timer);
-  }, [current]);
+  }, [current, musicState.isPlaying, musicState.updatedAtServerTime, musicState.basePositionSeconds]);
 
-  // Search full-length tracks
+  // Search full-length tracks using apiFetch
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
     setSearching(true);
+    setSearchError(null);
     try {
-      const res = await fetch(`/api/music/search?q=${encodeURIComponent(searchQuery.trim())}`);
-      const data = await res.json();
-      if (res.status === 429) {
-        setSearchError(data.error || 'Song search limit reached. Max 12 searches per minute.');
-        return;
+      const data = await apiFetch(`/api/music/search?q=${encodeURIComponent(searchQuery.trim())}`);
+      setSearchResults(data?.results || []);
+      if (!data?.results || data.results.length === 0) {
+        setSearchError('No songs found. Try another song title, artist, or paste a YouTube URL.');
       }
-      setSearchResults(data.results || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Full song search error:', err);
+      setSearchError(err?.message || 'Failed to search songs. Please try again.');
     } finally {
       setSearching(false);
     }
   };
 
   const playSongNow = (song: any) => {
-    if (!activeRoomId) return;
     const track = {
       id: song.videoId,
       provider: 'youtube',
@@ -368,7 +277,7 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
     };
 
     wsClient.send('music:control', {
-      roomId: activeRoomId,
+      roomId: activeRoomId || 'global',
       action: 'play_now',
       track,
     });
@@ -377,7 +286,6 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
   };
 
   const addSongToQueue = (song: any) => {
-    if (!activeRoomId) return;
     const track = {
       id: song.videoId,
       provider: 'youtube',
@@ -390,41 +298,37 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
     };
 
     wsClient.send('music:control', {
-      roomId: activeRoomId,
+      roomId: activeRoomId || 'global',
       action: 'add_track',
       track,
     });
   };
 
   const togglePlay = () => {
-    if (!activeRoomId) return;
     wsClient.send('music:control', {
-      roomId: activeRoomId,
+      roomId: activeRoomId || 'global',
       action: musicState.isPlaying ? 'pause' : 'play',
     });
   };
 
   const handleSkip = () => {
-    if (!activeRoomId) return;
     wsClient.send('music:control', {
-      roomId: activeRoomId,
+      roomId: activeRoomId || 'global',
       action: 'skip',
     });
   };
 
   const playQueueIndex = (index: number) => {
-    if (!activeRoomId) return;
     wsClient.send('music:control', {
-      roomId: activeRoomId,
+      roomId: activeRoomId || 'global',
       action: 'play_index',
       position: index,
     });
   };
 
   const handleRemoveQueue = (index: number) => {
-    if (!activeRoomId) return;
     wsClient.send('music:control', {
-      roomId: activeRoomId,
+      roomId: activeRoomId || 'global',
       action: 'remove_queue',
       position: index,
     });
@@ -436,10 +340,24 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
     const clickX = e.clientX - rect.left;
     const pct = Math.max(0, Math.min(1, clickX / rect.width));
     const targetTime = pct * duration;
-    if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
-      playerRef.current.seekTo(targetTime, true);
+    const yt = (window as any).__echowire_yt;
+    if (yt && typeof yt.seekTo === 'function') {
+      try { yt.seekTo(targetTime, true); } catch {}
     }
     setCurrentTime(targetTime);
+    wsClient.send('music:control', {
+      roomId: activeRoomId || 'global',
+      action: 'seek',
+      positionSeconds: targetTime,
+    });
+  };
+
+  const handleVolumeChange = (v: number) => {
+    setVolume(v);
+    const yt = (window as any).__echowire_yt;
+    if (yt && typeof yt.setVolume === 'function') {
+      try { yt.setVolume(v); } catch {}
+    }
   };
 
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -451,16 +369,11 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
             <span className={`w-2 h-2 rounded-full ${musicState.isPlaying ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`} />
-            <span className="text-zinc-400 text-xs font-medium">{musicState.isPlaying ? 'Playing Full Track in Room' : 'Music Paused'}</span>
+            <span className="text-zinc-400 text-xs font-medium">{musicState.isPlaying ? 'Playing in All Rooms' : 'Music Paused'}</span>
           </div>
           {current && (
             <span className="text-[10px] text-zinc-500 uppercase tracking-wider">{current.artist}</span>
           )}
-        </div>
-
-        {/* Hidden 1x1 audio element for minimal CPU/GPU/network load */}
-        <div className="w-[1px] h-[1px] overflow-hidden opacity-0 pointer-events-none absolute -left-[9999px]">
-          <div id="yt-full-player" className="w-full h-full" />
         </div>
 
         {/* Audio Only Player Card */}
@@ -546,7 +459,7 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
             min="0"
             max="100"
             value={volume}
-            onChange={(e) => setVolume(Number(e.target.value))}
+            onChange={(e) => handleVolumeChange(Number(e.target.value))}
             className="w-full accent-accent h-1 cursor-pointer"
           />
         </div>
@@ -560,7 +473,7 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
           <div className="flex gap-1.5 mb-2">
             <input
               className="flex-1 bg-zinc-950 border border-zinc-800 text-zinc-100 text-xs rounded px-2.5 py-1.5 outline-none focus:border-accent placeholder:text-zinc-600"
-              placeholder="Song or artist name..."
+              placeholder="Song, artist, or paste YouTube link..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -573,6 +486,12 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
               {searching ? '...' : 'Search'}
             </button>
           </div>
+
+          {searchError && (
+            <div className="mb-2 p-2 bg-red-500/10 border border-red-500/20 text-red-400 text-xs rounded leading-relaxed">
+              {searchError}
+            </div>
+          )}
 
           {/* Search Results */}
           {searchResults.length > 0 && (
