@@ -44,6 +44,17 @@ export default function ProfileView({ currentUser, onBack, onLogout, onProfileUp
   const [editBio, setEditBio] = useState(currentUser?.bio || '')
   const [saving, setSaving] = useState(false)
   const [editMsg, setEditMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+
+  const handleLogoutClick = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    try {
+      await onLogout();
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   const username = currentUser?.username || 'User'
   const initials = username.slice(0, 2).toUpperCase()
@@ -251,11 +262,24 @@ export default function ProfileView({ currentUser, onBack, onLogout, onProfileUp
           {/* Divider */}
           <div className="border-t border-zinc-800 pt-4">
             <button
-              onClick={onLogout}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/20 hover:border-red-500/30 text-sm font-medium transition-all cursor-pointer"
+              onClick={handleLogoutClick}
+              disabled={isLoggingOut}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/20 hover:border-red-500/30 text-sm font-medium transition-all cursor-pointer disabled:opacity-50"
             >
-              <IconLogOut size={14} />
-              {isGuest ? 'Leave Guest Session' : 'Log Out'}
+              {isLoggingOut ? (
+                <>
+                  <svg className="animate-spin w-3.5 h-3.5 text-red-400" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                  <span>{isGuest ? 'Leaving guest session...' : 'Logging out...'}</span>
+                </>
+              ) : (
+                <>
+                  <IconLogOut size={14} />
+                  <span>{isGuest ? 'Leave Guest Session' : 'Log Out'}</span>
+                </>
+              )}
             </button>
           </div>
         </div>

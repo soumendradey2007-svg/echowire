@@ -511,10 +511,7 @@ export default function App() {
       }
 
       if (currentUser?.isGuest || res?.guestEnded) {
-        setAuthToken(null);
-        setCurrentUser(null);
-        wsClient.disconnect();
-        setNavView('rooms');
+        await handleLogout();
       } else {
         loadRooms();
       }
@@ -522,17 +519,55 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    // Call backend to revoke server-side session
+    // 1. Cleanly tear down voice room, release mic/hardware, and notify server if in a room
+    if (activeRoomId) {
+      try {
+        voiceManager.leaveRoom();
+      } catch {}
+      try {
+        await apiFetch(`/api/rooms/${activeRoomId}/leave`, { method: 'POST', silent: true });
+      } catch {}
+    } else {
+      try {
+        voiceManager.leaveRoom();
+      } catch {}
+    }
+
+    // 2. Stop and clear any playing room music audio
+    if (globalAudioRef.current) {
+      try {
+        globalAudioRef.current.pause();
+        globalAudioRef.current.src = '';
+      } catch {}
+    }
+    setRoomMusicState(null);
+
+    // 3. Call backend to revoke server-side session and clear auth cookies
     try {
       await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch {}
-    // Clear client-side state
-    setAuthToken(null);
-    setCurrentUser(null);
+
+    // 4. Disconnect WebSocket cleanly without scheduling reconnect
     wsClient.disconnect();
+
+    // 5. Purge tokens from localStorage & sessionStorage
+    setAuthToken(null);
+
+    // 6. Reset all user & room-related frontend states
+    setCurrentUser(null);
+    setActiveRoomId(null);
+    setIsMuted(false);
+    setIsDeafened(false);
+    setIsSpeaking(false);
+    setRooms([]);
+    setFriends([]);
+    setMessages([]);
+    setInvites([]);
+    setToasts([]);
+
+    // 7. Route back to clean landing view and clear URL params
     setNavView('rooms');
     setAuthMode('landing');
-    // Clean any stale URL params
     window.history.replaceState({}, '', '/');
   };
 

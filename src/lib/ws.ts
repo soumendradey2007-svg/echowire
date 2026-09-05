@@ -4,8 +4,10 @@ export class WebSocketClient {
   private ws: WebSocket | null = null;
   private handlers = new Map<string, Set<EventHandler>>();
   private reconnectTimer: any = null;
+  private intentionalDisconnect = false;
 
   connect() {
+    this.intentionalDisconnect = false;
     let url = import.meta.env.VITE_WS_URL;
     if (!url) {
       const customApi = import.meta.env.VITE_API_URL ||
@@ -48,6 +50,7 @@ export class WebSocketClient {
     };
 
     this.ws.onclose = () => {
+      if (this.intentionalDisconnect) return;
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = setTimeout(() => this.connect(), 3000);
     };
@@ -68,8 +71,10 @@ export class WebSocketClient {
   }
 
   disconnect() {
+    this.intentionalDisconnect = true;
     clearTimeout(this.reconnectTimer);
     if (this.ws) {
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }

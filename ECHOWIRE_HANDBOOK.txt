@@ -418,6 +418,28 @@ Feature 5: Global Network Activity Tracker & Instant Button Feedback
    immediately display an inline spinning icon, change text (e.g., "Joining...", "Creating..."), and
    disable re-clicking to eliminate duplicate requests.
 
+Feature 6: Airtight Sign Out & Complete Session Teardown
+1. When a user clicks "Sign out" in Settings or "Log Out" / "Leave Guest Session" in Profile,
+   they expect total privacy and a complete clean slate.
+2. Step 1 (Hardware & WebRTC Teardown): The client calls voiceManager.leaveRoom(). This immediately
+   stops all hardware microphone tracks (MediaStreamTrack.stop()), shuts off the browser's red
+   recording indicator, closes Web Audio DSP nodes, and cleanly severs all WebRTC peer-to-peer
+   mesh connections. If the user was in a room, it notifies POST /api/rooms/:id/leave.
+3. Step 2 (Room Audio & Music Silence): Any playing room music (globalAudioRef) is instantly paused,
+   silenced, and detached so audio never leaks through after logging out.
+4. Step 3 (Cryptographic Session Revocation): The browser calls POST /api/auth/logout. The Fastify
+   backend extracts the session token, queries PostgreSQL, and permanently deletes the record from
+   the `sessions` table. Fastify also clears the server-set HTTP-only auth cookie (reply.clearCookie()).
+5. Step 4 (Clean WebSocket Severing): The client calls wsClient.disconnect(). An intentional
+   disconnect flag disarms the automatic reconnect timer, ensuring the browser never secretly
+   re-establishes a ghost WebSocket connection in the background.
+6. Step 5 (Storage Purge & State Reset): The client calls setAuthToken(null), wiping all tokens
+   and remember-me preferences from both localStorage and sessionStorage. All in-memory React states
+   (currentUser, activeRoomId, rooms, friends, messages, invites, toasts) are reset to empty.
+7. Step 6 (Micro-Interactions & Safe Routing): The sign-out buttons display an animated spinner
+   and text ("Signing out..." / "Logging out...") while disabling multiple clicks. On resolution,
+   the browser resets the URL to "/" and smoothly transitions to the landing page.
+
 
 ================================================================================
 CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION

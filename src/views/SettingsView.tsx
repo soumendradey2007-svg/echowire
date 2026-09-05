@@ -109,6 +109,7 @@ function AccountSection({ currentUser, onLogout, onProfileUpdate }: { currentUse
   const [newPassword, setNewPassword] = useState('')
   const [profileMsg, setProfileMsg] = useState('')
   const [passMsg, setPassMsg] = useState('')
+  const [isSigningOut, setIsSigningOut] = useState(false)
 
   const initials = username.slice(0, 2).toUpperCase() || 'U';
 
@@ -145,10 +146,13 @@ function AccountSection({ currentUser, onLogout, onProfileUpdate }: { currentUse
   };
 
   const handleSignOut = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
     try {
-      await apiFetch('/api/auth/logout', { method: 'POST' });
-    } catch {}
-    onLogout?.();
+      await onLogout?.();
+    } finally {
+      setIsSigningOut(false);
+    }
   };
 
   return (
@@ -197,9 +201,25 @@ function AccountSection({ currentUser, onLogout, onProfileUpdate }: { currentUse
       </div>
 
       <div className="pt-6 border-t border-zinc-900 space-y-2">
-        <button onClick={handleSignOut} className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer">
-          <IconLogOut size={14} />
-          Sign out
+        <button 
+          onClick={handleSignOut} 
+          disabled={isSigningOut}
+          className="flex items-center gap-2 text-sm text-zinc-500 hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
+        >
+          {isSigningOut ? (
+            <>
+              <svg className="animate-spin w-3.5 h-3.5 text-zinc-400" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              <span>Signing out...</span>
+            </>
+          ) : (
+            <>
+              <IconLogOut size={14} />
+              <span>Sign out</span>
+            </>
+          )}
         </button>
       </div>
     </div>

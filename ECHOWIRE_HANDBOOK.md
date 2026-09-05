@@ -395,6 +395,17 @@ Here is how each key feature executes under the hood, step by step:
 
 ---
 
+### Feature 6: Airtight Sign Out & Complete Session Teardown
+1. **The Human Scenario**: When a user clicks "Sign out" (in Settings) or "Log Out" / "Leave Guest Session" (in Profile), they expect total privacy and an absolute clean slate. Their microphone must not secretly stay listening, audio must not keep playing, and their account must be completely logged out on both the server and their device.
+2. **Step 1: Hardware & WebRTC Teardown**: Before anything else, the client executes `voiceManager.leaveRoom()`. This immediately stops all hardware microphone tracks (`getTracks().forEach(t => t.stop())`), turns off the browser's red microphone recording indicator, shuts down Web Audio DSP nodes, and cleanly severs all WebRTC peer-to-peer connections. If the user was inside a room, the server is notified via `POST /api/rooms/:id/leave` to update member lists for other users.
+3. **Step 2: Room Audio & Music Silence**: Any synchronized music playback (`globalAudioRef`) is immediately stopped, silenced, and detached so no audio leaks through after logout.
+4. **Step 3: Cryptographic Session Revocation**: The browser calls `POST /api/auth/logout`. The Fastify backend extracts the session token, queries PostgreSQL, and permanently deletes the record from the `sessions` table. Fastify also clears the server-set HTTP-only authentication cookie (`reply.clearCookie()`). Even if someone intercepted the token earlier, it is now invalid on the database level.
+5. **Step 4: Clean WebSocket Severing (No Ghost Reconnects)**: The client calls `wsClient.disconnect()`. An intentional disconnect flag disarms the automatic reconnect timer, ensuring the browser never secretly re-establishes a ghost WebSocket connection in the background.
+6. **Step 5: Storage Purge & In-Memory Reset**: The client calls `setAuthToken(null)`, wiping all tokens and remember-me preferences from both `localStorage` and `sessionStorage`. All in-memory React states (`currentUser`, `activeRoomId`, `rooms`, `friends`, `messages`, `invites`, `toasts`) are completely reset to empty states so no data lingers in memory for subsequent logins.
+7. **Step 6: UI Micro-Interactions & Safe Routing**: The sign-out buttons in both Settings and Profile display an animated spinner and text (`Signing out...` / `Logging out...`) while disabling multiple clicks. On resolution, the browser resets the URL to `/` and smoothly transitions to the landing page.
+
+---
+
 # CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION
 
 | Decision | Alternative Considered | The Real Reason We Built It This Way |

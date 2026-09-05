@@ -120,6 +120,7 @@ EchoWire is an open-source, lightweight communication platform designed for high
 ### 🛡️ Enterprise-Grade Security & Anti-Bot Defense
 - **Argon2id Password Hashing**: Memory-hard key derivation to prevent brute-force cracking.
 - **Google Identity Services (GIS)**: Cryptographically verified Google OAuth 2.0.
+- **Airtight Session Lifecycle & Zero-Leak Sign Out**: Signing out or exiting a guest session atomically halts hardware microphone capture (`MediaStreamTrack.stop()`), closes Web Audio DSP nodes, severs WebRTC peer mesh connections, pauses active room music, permanently deletes the session from the PostgreSQL database, disarms WebSocket auto-reconnect timers, clears cookies/local storage, and purges in-memory states with animated UI feedback.
 - **Anti-Bot Invisible Honeypot**: Hidden `website_hp` input traps automated spam scrapers.
 - **Submission Timing Defense**: Rejects superhuman sub-second form submissions (< 750ms).
 - **Helmet HTTP Security**: Hardened HTTP headers (`frameguard: deny`, `noSniff: true`, `xssFilter: true`, `strict-origin-when-cross-origin`).
