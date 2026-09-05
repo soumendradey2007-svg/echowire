@@ -91,11 +91,15 @@ EchoWire is an open-source, lightweight communication platform designed for high
 
 ### 🌐 Public vs. Private Channels & Guest Mode
 - **Public Channels (`🌐 Public`)**: Open to all users, including guest visitors. Anyone can browse, join, talk over WebRTC, and participate in text chat.
-- **Private Channels (`🔒 Private`)**: Exclusively reserved for registered, authenticated members. Guests attempting to join are blocked with clear, informative prompts.
-- **Personal Lounges (`💜 Personal`)**: Permanent default voice channels for registered users (`Username's Room`) that never expire and **cannot be deleted**. The delete option is completely stripped for personal rooms and protected server-side with `403 Forbidden`. Only user-created custom rooms can be deleted by their owner.
+- **Private Channels (`🔒 Private`)**: Exclusively reserved for registered, authenticated members. From the outside, private rooms are locked (`🔒 Invite Only`) and can only be joined if invited by the owner.
+- **Personal Lounges (`💜 Your Personal Room`)**: Permanent default voice channels for registered users (`Username's Room`) that never expire and **cannot be deleted**.
+  - **Owner Distinction**: The logged-in user's personal room is highlighted with a `💜 Your Personal Room` badge, subtitle *"Your private default space"*, and is pinned to the top of the room directory.
+  - **Privacy Lock for Outside Users**: Other users' personal rooms are marked `🔒 Personal • Private` and locked with an `🔒 Invite Only` badge. Strangers cannot join from the outside; entry requires an explicit invite from the owner.
+  - **Server-Side Authorization**: `POST /api/rooms/:id/join` enforces strict authorization, rejecting unauthorized entry to personal or private rooms with `403 Forbidden`.
 - **Unique Guest Tagging**: Every guest receives a unique UUID-derived tag (e.g. `Guest#g-4A8F`), preventing tag collision or confusion in rooms.
 - **Guest Creation Lock**: Guest accounts are scoped to join public rooms and prevented from creating rooms.
 - **Atomic Creation & Zero-Race Deletion**: Room creation atomically links the owner to the room, eliminating foreign key race conditions.
+- **Smooth Loading & Route Sync**: Reloading gracefully displays a loading spinner instead of "0 available", triggers the top progress bar, and synchronizes the browser address bar from `/signin` to `/rooms`.
 
 ### 👑 Room Moderation & Owner Privileges
 - **Owner-Only Kick**: Room creators can moderate rooms with an exclusive red **Kick** action. Ordinary members cannot access or spoof kick endpoints.

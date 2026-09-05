@@ -8,9 +8,10 @@ interface Props {
   onJoin: (id: string) => void | Promise<void>;
   onRefresh?: () => void;
   currentUser?: any;
+  isLoading?: boolean;
 }
 
-export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Props) {
+export default function RoomsView({ rooms, onJoin, onRefresh, currentUser, isLoading = false }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [roomDesc, setRoomDesc] = useState('');
@@ -85,12 +86,23 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
 
   const isGuest = currentUser?.isGuest || false;
 
+  // Always sort user's own personal room at the very top of the directory
+  const sortedRooms = [...rooms].sort((a, b) => {
+    const aIsMine = a.description === 'Personal Room' && (currentUser?.id ? a.ownerId === currentUser.id : (a as any).isOwner);
+    const bIsMine = b.description === 'Personal Room' && (currentUser?.id ? b.ownerId === currentUser.id : (b as any).isOwner);
+    if (aIsMine && !bIsMine) return -1;
+    if (!aIsMine && bIsMine) return 1;
+    return 0;
+  });
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-zinc-950">
       <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-zinc-900">
         <div>
           <h1 className="text-zinc-100 font-semibold text-base">Rooms</h1>
-          <p className="text-zinc-500 text-xs mt-0.5">{rooms.length} available</p>
+          <p className="text-zinc-500 text-xs mt-0.5">
+            {isLoading ? 'Loading voice channels...' : `${rooms.length} available`}
+          </p>
         </div>
         {!isGuest ? (
           <button
@@ -109,19 +121,31 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 sm:p-6">
-        <div className="space-y-2">
-          {rooms.map((room) => (
-            <RoomRow
-              key={room.id}
-              room={room}
-              onJoin={handleJoinRoom}
-              isJoining={joiningId === room.id}
-              isAnyJoining={!!joiningId}
-              onDelete={handleDeleteRoom}
-              currentUser={currentUser}
-            />
-          ))}
-        </div>
+        {isLoading && rooms.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-zinc-500 gap-3">
+            <div className="w-8 h-8 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            <p className="text-xs text-zinc-400 font-medium">Loading your voice channels...</p>
+          </div>
+        ) : rooms.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-zinc-500 gap-2">
+            <p className="text-sm font-medium text-zinc-400">No rooms available yet</p>
+            <p className="text-xs text-zinc-600">Create a new room above to get started.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sortedRooms.map((room) => (
+              <RoomRow
+                key={room.id}
+                room={room}
+                onJoin={handleJoinRoom}
+                isJoining={joiningId === room.id}
+                isAnyJoining={!!joiningId}
+                onDelete={handleDeleteRoom}
+                currentUser={currentUser}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {showCreate && (
@@ -252,12 +276,33 @@ function RoomRow({
   const isFull = room.memberCount >= room.maxMembers;
   const isOwner = currentUser?.id ? room.ownerId === currentUser.id : (room as any).isOwner;
   const isGuest = currentUser?.isGuest || false;
+  const isInvited = (room as any).isInvited || false;
+
+  // Personal Room Distinction:
+  const isMyPersonalRoom = isPersonal && isOwner;
+  const isOtherPersonalRoom = isPersonal && !isOwner;
+  const isPrivateCustomRoom = room.isPrivate && !isPersonal;
+
+  // Privacy & Lock Rules:
+  // - You can join your own personal room
+  // - You can join public rooms
+  // - You can join any room if invited or if already a member/owner
+  // - From the outside, you CANNOT join other people's personal or private rooms without invitation!
   const isPrivateLockedForGuest = room.isPrivate && isGuest;
+  const isLockedForOutsideUser = (isOtherPersonalRoom || isPrivateCustomRoom) && !isOwner && !isInvited;
 
   const handleRowClick = () => {
     if (isAnyJoining || isFull) return;
     if (isPrivateLockedForGuest) {
       alert('🔒 This is a Private Room restricted to registered EchoWire members. Please create a free account or sign in to enter private channels.');
+      return;
+    }
+    if (isLockedForOutsideUser) {
+      if (isOtherPersonalRoom) {
+        alert(`🔒 Privacy Protected: This is ${room.name}. It is a private personal lounge. You can only enter if invited by the room owner.`);
+      } else {
+        alert('🔒 Privacy Protected: This is an invite-only Private Room. You can only enter if invited by the room owner.');
+      }
       return;
     }
     onJoin(room.id);
@@ -266,18 +311,28 @@ function RoomRow({
   return (
     <div
       onClick={handleRowClick}
-      className={`flex items-center justify-between gap-3 px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 border ${
-        isJoining ? 'border-accent/60 bg-zinc-900/90 shadow-md' : 'border-zinc-800/80 hover:border-zinc-700'
-      } transition-all cursor-pointer group shadow-sm active:scale-[0.99]`}
+      className={`flex items-center justify-between gap-3 px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-xl transition-all cursor-pointer group shadow-sm active:scale-[0.99] border ${
+        isJoining
+          ? 'border-accent/60 bg-zinc-900/90 shadow-md'
+          : isMyPersonalRoom
+          ? 'border-accent/35 bg-accent/[0.04] hover:bg-accent/[0.08] hover:border-accent/50'
+          : 'bg-zinc-900/50 hover:bg-zinc-900 border-zinc-800/80 hover:border-zinc-700'
+      }`}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5 flex-wrap">
           <span className="text-zinc-100 text-sm font-semibold truncate">{room.name}</span>
           
-          {/* Distinct Badges: Personal vs Private vs Public */}
-          {isPersonal ? (
-            <span className="text-[10px] text-accent bg-accent/15 border border-accent/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 flex-shrink-0">
-              Personal
+          {/* Distinct Badges: My Personal vs Other Personal vs Private vs Public */}
+          {isMyPersonalRoom ? (
+            <span className="text-[10px] text-accent bg-accent/15 border border-accent/30 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1.5 flex-shrink-0 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+              Your Personal Room
+            </span>
+          ) : isOtherPersonalRoom ? (
+            <span className="text-[10px] text-zinc-400 bg-zinc-800/90 border border-zinc-700/80 px-2.5 py-0.5 rounded-full font-medium flex items-center gap-1 flex-shrink-0">
+              <IconLock size={10} className="text-zinc-500" />
+              Personal • Private
             </span>
           ) : room.isPrivate ? (
             <span className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 flex-shrink-0">
@@ -296,6 +351,11 @@ function RoomRow({
               Owner
             </span>
           )}
+          {isInvited && !isOwner && (
+            <span className="text-[10px] text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 flex-shrink-0 animate-pulse">
+              📩 Invited
+            </span>
+          )}
           {isFull && (
             <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded flex-shrink-0">
               Full
@@ -305,7 +365,17 @@ function RoomRow({
 
         <div className="flex items-center gap-2 text-zinc-500 text-[11px] mt-1">
           <span>{room.memberCount} / {room.maxMembers} in room</span>
-          {room.description && !isPersonal && (
+          {isMyPersonalRoom ? (
+            <>
+              <span>•</span>
+              <span className="text-accent/90 font-medium">Your private default space</span>
+            </>
+          ) : isOtherPersonalRoom ? (
+            <>
+              <span>•</span>
+              <span className="text-zinc-400">Private lounge</span>
+            </>
+          ) : room.description && (
             <>
               <span>•</span>
               <span className="truncate">{room.description}</span>
@@ -343,7 +413,7 @@ function RoomRow({
           <IconShare size={14} />
         </button>
 
-        {/* Join Room Button - handles Public vs Private guest lock */}
+        {/* Join Room Button - handles Public vs Private vs Personal Locks */}
         {isPrivateLockedForGuest ? (
           <button
             onClick={(e) => {
@@ -355,6 +425,22 @@ function RoomRow({
           >
             <IconLock size={12} />
             <span>Members Only</span>
+          </button>
+        ) : isLockedForOutsideUser ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isOtherPersonalRoom) {
+                alert(`🔒 Privacy Protected: This is ${room.name}. It is a private personal lounge. You can only enter if invited by the room owner.`);
+              } else {
+                alert('🔒 Privacy Protected: This is an invite-only Private Room. You can only enter if invited by the room owner.');
+              }
+            }}
+            className="flex items-center justify-center gap-1.5 min-w-[75px] text-xs font-semibold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 border border-zinc-800 hover:border-zinc-700 transition-all cursor-pointer shadow-sm"
+            title={isOtherPersonalRoom ? "Private personal room - invite only" : "Private channel - invite only"}
+          >
+            <IconLock size={12} className="text-zinc-500" />
+            <span>Invite Only</span>
           </button>
         ) : (
           <button
@@ -373,6 +459,8 @@ function RoomRow({
                 </svg>
                 <span>Joining...</span>
               </>
+            ) : isInvited && !isOwner ? (
+              'Accept & Join'
             ) : (
               'Join'
             )}

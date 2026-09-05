@@ -54,10 +54,10 @@ export default function TopLoadingBar() {
             });
           }, 250);
 
-          // If operation takes longer than 4.5 seconds, show gentle reassurance notice
+          // If operation takes longer than 3.5 seconds, show gentle reassurance notice
           slowTimerRef.current = setTimeout(() => {
             setSlowLoading(true);
-          }, 4500);
+          }, 3500);
         }
       } else {
         // All active network requests are now finished
@@ -78,8 +78,8 @@ export default function TopLoadingBar() {
 
           resetTimerRef.current = setTimeout(() => {
             setVisible(false);
-            setProgress(0);
-          }, 350);
+            setTimeout(() => setProgress(0), 300);
+          }, 400);
         }
       }
     });
@@ -96,12 +96,12 @@ export default function TopLoadingBar() {
   return (
     <>
       {/* Top Progress Bar */}
-      <div className="fixed top-0 left-0 right-0 z-[9999] h-[2.5px] bg-transparent pointer-events-none overflow-hidden">
+      <div className="fixed top-0 left-0 right-0 z-[9999] h-[3px] bg-transparent pointer-events-none overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-accent via-indigo-400 to-accent shadow-[0_0_8px_rgba(99,102,241,0.8)] transition-all duration-300 ease-out"
+          className="h-full bg-gradient-to-r from-indigo-500 via-accent to-purple-400 shadow-[0_0_12px_rgba(99,102,241,1),0_0_4px_rgba(168,85,247,0.8)] transition-all duration-300 ease-out"
           style={{
             width: `${progress}%`,
-            opacity: progress === 100 || !visible ? 0 : 1,
+            opacity: visible ? 1 : 0,
           }}
         />
       </div>

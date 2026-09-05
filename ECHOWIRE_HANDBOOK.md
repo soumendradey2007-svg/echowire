@@ -426,6 +426,13 @@ Here is how each key feature executes under the hood, step by step:
      * In `handleDeleteRoom`, an explicit guard blocks any deletion attempt on personal rooms.
      * On the server ([`rooms.routes.ts`](file:///C:/Users/soume/Desktop/Voicechat%20(Echodown)/Follow%20Markdown%20File/server/src/routes/rooms.routes.ts)), `DELETE /api/rooms/:id` checks `if (room.description === 'Personal Room')` and rejects the request with `403 Forbidden: "Personal rooms are default and cannot be deleted."`.
      * Only user-created custom rooms display the delete option for their respective owner.
+6. **Personal Room Privacy & Outside User Locks**:
+   * A user's personal room is clearly distinguished with a `💜 Your Personal Room` badge, subtitle *"Your private default space"*, and is pinned to the top of the room browser.
+   * Other users' personal rooms are labeled `🔒 Personal • Private` with an `🔒 Invite Only` locked action button. Outside users cannot enter without an invitation.
+   * `POST /api/rooms/:id/join` enforces strict server-side authorization: only the owner, invited users (via direct invite or invite link), or existing members can enter (`403 Forbidden` otherwise).
+7. **Hydration Reliability & Progress Bar Visibility**:
+   * Reloading the browser triggers the top progress bar and displays a clean spinner in the room browser instead of showing a misleading "0 available" message while data is in flight.
+   * Automatic route synchronization ensures the browser address bar updates to `/rooms` upon authentication instead of remaining stuck on `/signin`.
 
 ---
 

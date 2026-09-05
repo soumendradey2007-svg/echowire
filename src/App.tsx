@@ -29,6 +29,7 @@ export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>('landing');
   const [navView, setNavView] = useState<NavView>('rooms');
   const [rooms, setRooms] = useState<any[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(true);
   const [friends, setFriends] = useState<any[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<RightTab>('chat');
@@ -273,7 +274,7 @@ export default function App() {
       if (pending) {
         sessionStorage.removeItem('pendingJoinRoom');
         window.history.replaceState({}, '', window.location.pathname);
-        handleJoin(pending);
+        handleJoin(pending, true);
       }
     }
   }, [currentUser]);
@@ -299,28 +300,36 @@ export default function App() {
     };
   }, []);
 
-  const loadRooms = () => {
-    apiFetch('/api/rooms', { silent: true })
+  const loadRooms = (silent = false) => {
+    setRoomsLoading(true);
+    apiFetch('/api/rooms', { silent })
       .then((data) => setRooms(data.rooms || []))
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => setRoomsLoading(false));
   };
 
-  const loadFriends = () => {
-    apiFetch('/api/friends', { silent: true })
+  const loadFriends = (silent = true) => {
+    apiFetch('/api/friends', { silent })
       .then((data) => setFriends(data.friends || []))
       .catch(console.error);
   };
 
   useEffect(() => {
-    apiFetch('/api/auth/me', { silent: true })
+    apiFetch('/api/auth/me')
       .then((data) => {
         setCurrentUser(data.user);
+        if (window.location.pathname === '/signin' || window.location.pathname === '/login' || window.location.pathname === '/signup') {
+          window.history.replaceState({ type: 'nav', view: 'rooms' }, '', '/rooms');
+        }
         wsClient.connect();
-        loadRooms();
-        loadFriends();
+        loadRooms(false);
+        loadFriends(true);
         loadInvites();
       })
-      .catch(() => setCurrentUser(null))
+      .catch(() => {
+        setCurrentUser(null);
+        setRoomsLoading(false);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -457,7 +466,7 @@ export default function App() {
       await apiFetch(`/api/rooms/invites/${inv.id}/accept`, { method: 'POST' }).catch(() => {});
       setInvites((prev) => prev.filter((x) => x.id !== inv.id));
       setIncomingInvite(null);
-      await handleJoin(inv.roomId);
+      await handleJoin(inv.roomId, true);
     } catch (err: any) {
       alert(err.message || 'Failed to join room');
     }
@@ -471,9 +480,12 @@ export default function App() {
     }
   };
 
-  const handleJoin = async (id: string) => {
+  const handleJoin = async (id: string, viaInvite = false) => {
     try {
-      await apiFetch(`/api/rooms/${id}/join`, { method: 'POST' });
+      await apiFetch(`/api/rooms/${id}/join`, {
+        method: 'POST',
+        body: JSON.stringify({ viaInvite }),
+      });
       setActiveRoomId(id);
       wsClient.send("music:get_state", { roomId: id });
       setNavView('rooms');
@@ -493,7 +505,7 @@ export default function App() {
           isSpeaking: speaking,
         });
       });
-      loadRooms();
+      loadRooms(true);
     } catch (err: any) {
       alert(err.message || 'Failed to join room');
     }
@@ -682,19 +694,22 @@ export default function App() {
           mode={authMode}
           onModeChange={navigateAuth}
           onAuth={(user?: any) => {
+            if (window.location.pathname === '/signin' || window.location.pathname === '/login' || window.location.pathname === '/signup') {
+              window.history.replaceState({ type: 'nav', view: 'rooms' }, '', '/rooms');
+            }
             if (user) {
               setCurrentUser(user);
               wsClient.connect();
-              loadRooms();
-              loadFriends();
+              loadRooms(false);
+              loadFriends(true);
               loadInvites();
             } else {
               apiFetch('/api/auth/me')
                 .then((d) => {
                   setCurrentUser(d.user);
                   wsClient.connect();
-                  loadRooms();
-                  loadFriends();
+                  loadRooms(false);
+                  loadFriends(true);
                   loadInvites();
                 })
                 .catch(console.error);
@@ -739,7 +754,13 @@ export default function App() {
             onToggleRight={() => setRightOpen((v) => !v)}
           />
         ) : navView === 'rooms' ? (
-          <RoomsView rooms={rooms} onJoin={handleJoin} onRefresh={loadRooms} currentUser={currentUser} />
+          <RoomsView
+            rooms={rooms}
+            onJoin={handleJoin}
+            onRefresh={() => loadRooms(false)}
+            currentUser={currentUser}
+            isLoading={roomsLoading}
+          />
         ) : navView === 'friends' ? (
           <FriendsView
             friends={friends}

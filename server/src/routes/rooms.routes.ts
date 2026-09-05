@@ -94,10 +94,15 @@ export async function roomRoutes(app: FastifyInstance) {
           continue;
         }
 
+        cleanExpiredInvites();
+        const isInvited = Array.from(serverRoomInvites.values()).some(
+          (inv) => inv.roomId === r.id && inv.toUserId === currentUserId && inv.expiresAt > Date.now()
+        );
+
         // Room Visibility Rules:
         // - Public rooms are visible to everyone (registered users and guests)
-        // - Personal & Private rooms are visible to owner, active members, or invited members
-        const isVisible = !r.isPrivate || isOwner || isCurrentMember || (wasJoined && members.length > 0);
+        // - Personal rooms and Private rooms are visible to owner, active members, or registered members in directory
+        const isVisible = !r.isPrivate || isPersonal || isOwner || isCurrentMember || (wasJoined && members.length > 0);
         if (!isVisible) continue;
 
         result.push({
@@ -105,7 +110,9 @@ export async function roomRoutes(app: FastifyInstance) {
           name: r.name,
           type: r.type,
           description: r.description,
+          isPersonal,
           isPrivate: r.isPrivate,
+          isInvited,
           bitrate: r.bitrate,
           maxParticipants: r.maxParticipants,
           textChatEnabled: r.textChatEnabled,
@@ -213,8 +220,44 @@ export async function roomRoutes(app: FastifyInstance) {
       if (!room) return reply.status(404).send({ error: 'Room not found' });
 
       const isGuest = auth.user.email ? (auth.user.email.endsWith('@guest.echowire.local') || auth.user.email.startsWith('guest_')) : false;
+      const isPersonal = room.description === 'Personal Room';
+      const isOwner = room.ownerId === auth.user.id;
+
       if (room.isPrivate && isGuest) {
         return reply.status(403).send({ error: 'Private rooms require a registered account. Please sign in to join.' });
+      }
+      if (isPersonal && isGuest) {
+        return reply.status(403).send({ error: 'Personal rooms are private. Please sign in to join.' });
+      }
+
+      // Privacy Authorization: Check active invite or existing membership
+      cleanExpiredInvites();
+      const body = (req.body || {}) as any;
+      const hasDirectInvite = Array.from(serverRoomInvites.values()).some(
+        (inv) => inv.roomId === id && inv.toUserId === auth.user.id && inv.expiresAt > Date.now()
+      );
+      const isViaInvite = !!body.viaInvite || hasDirectInvite;
+
+      const [existingMember] = await db
+        .select()
+        .from(roomMembers)
+        .where(and(eq(roomMembers.roomId, id), eq(roomMembers.userId, auth.user.id)))
+        .limit(1);
+
+      const hasAccess = isOwner || isViaInvite || !!existingMember;
+
+      // Personal Room Privacy Guard:
+      if (isPersonal && !hasAccess) {
+        return reply.status(403).send({
+          error: 'This is a private personal room. You can only enter if invited by the room owner.'
+        });
+      }
+
+      // Private Custom Channel Privacy Guard:
+      if (room.isPrivate && !hasAccess) {
+        return reply.status(403).send({
+          error: 'This is a private room. You can only enter if invited by the room owner.'
+        });
       }
 
       // Leave any other room currently in
