@@ -40,13 +40,14 @@ This project uses **Tailwind CSS v4** through the `@tailwindcss/vite` plugin con
 - Ensure JSX tags are closed and braces are balanced.
 - Export components as default exports.
 
-## Living Documentation: EchoWire Handbook Rule (MANDATORY)
+## Living Documentation: EchoWire Handbook & README Rule (MANDATORY)
 
 Whenever any code, API route, WebSocket event, database schema, security mechanism, or architectural feature is added, modified, or updated in this repository:
-1. You MUST automatically update `ECHOWIRE_HANDBOOK.md` and `ECHOWIRE_HANDBOOK.txt` in the root of this repository.
-2. The update must strictly maintain the established handbook style:
+1. You MUST automatically update `README.md`, `ECHOWIRE_HANDBOOK.md`, and `ECHOWIRE_HANDBOOK.txt` in the root of this repository.
+2. The handbook updates (`.md` and `.txt`) must strictly maintain the established handbook style:
    - Plain-English, beginner-friendly explanations.
    - Real-world analogies for any technical terms.
    - The human "Why" and logic behind every decision, table, and column.
    - Step-by-step feature lifecycles.
-3. Commit the updated handbook together with your code changes. The user must never need to manually ask you to update the handbook.
+3. The `README.md` must accurately reflect all new capabilities, UI feedback systems, security additions, and instructions.
+4. Commit the updated documentation files together with your code changes. The user must never need to manually ask you to update the documentation.

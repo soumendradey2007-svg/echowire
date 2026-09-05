@@ -2,19 +2,20 @@
 
 # EchoWire ⚡
 
-**Real-time voice chat, text messaging, and synchronized music for gamers and communities.**  
+**Real-time voice communication, text messaging, and synchronized music for gamers and communities.**  
 *Built with a clean, distraction-free interface, studio-grade DSP noise cancellation, and ultra-low latency WebRTC.*
 
 [![React 19](https://img.shields.io/badge/React-19.0-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-8.0-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Fastify](https://img.shields.io/badge/Fastify-4.28-000000?style=flat-square&logo=fastify&logoColor=white)](https://fastify.dev/)
-[![LiveKit](https://img.shields.io/badge/LiveKit-WebRTC-FF4F00?style=flat-square&logo=webrtc&logoColor=white)](https://livekit.io/)
+[![WebRTC](https://img.shields.io/badge/WebRTC-P2P%20Voice-FF4F00?style=flat-square&logo=webrtc&logoColor=white)](https://webrtc.org/)
 [![Tailwind CSS v4](https://img.shields.io/badge/Tailwind_CSS-v4.0-38B2AC?style=flat-square&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon.tech-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://neon.tech/)
+[![DPDP Act 2023](https://img.shields.io/badge/DPDP%20Act%202023-Compliant-emerald?style=flat-square)](ECHOWIRE_HANDBOOK.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
-[Live Demo](https://echowire.vercel.app) • [Architecture](#architecture) • [Features](#key-features) • [Quick Start](#quick-start) • [Deployment](#deployment-guide)
+[Architecture](#architecture) • [Features](#key-features) • [System Handbook](#-living-handbook) • [Quick Start](#quick-start) • [Deployment](#deployment-guide)
 
 ---
 
@@ -22,64 +23,117 @@
 
 ## Overview
 
-EchoWire is an open-source, lightweight alternative to Discord designed for high-performance communication during gaming and collaborative sessions. It avoids unnecessary bloat, focusing entirely on **crystal-clear voice**, **synchronized room music**, and **instant messaging**.
+EchoWire is an open-source, lightweight communication platform designed for high-performance voice and chat during gaming, collaborative work, and community hangouts. It eliminates bloated desktop downloads, invasive background telemetry, and expensive server bandwidth by utilizing a decentralized **Two-Lane Architecture**:
 
-```
-                           ┌───────────────────────────────┐
-                           │      EchoWire Web Client      │
-                           │   (React 19, Tailwind v4)     │
-                           └───────────────┬───────────────┘
-                                           │
-                    ┌──────────────────────┴──────────────────────┐
-                    │ HTTPS / WSS                                 │ WebRTC Audio
-                    ▼                                             ▼
-       ┌─────────────────────────┐                   ┌─────────────────────────┐
-       │   Fastify API Server    │                   │   LiveKit SFU Server    │
-       │ (Auth, Rooms, WebSockets│                   │ (Selective Forward Unit │
-       │  Rate Limit, Music API) │                   │  Opus Low-Latency Voice)│
-       └────────────┬────────────┘                   └─────────────────────────┘
-                    │
-         ┌──────────┴──────────┐
-         ▼                     ▼
-┌──────────────────┐  ┌──────────────────┐
-│  Neon PostgreSQL │  │ Embedded PGlite  │
-│  (Production DB) │  │ (Local Dev DB)   │
-└──────────────────┘  └──────────────────┘
+1. **The Control Tower (Fastify Backend)**: Coordinates user authentication, room lifecycles, friendships, text messaging, and presence via WebSockets.
+2. **The Direct Voice Expressway (WebRTC P2P Mesh)**: Delivers studio-processed, encrypted voice packets directly between participants' browsers with 20–40ms latency and **$0 server media cost**.
+
+```text
+================================================================================
+                           ECHOWIRE SYSTEM ARCHITECTURE
+================================================================================
+
+ [ USER'S BROWSER (CLIENT LAYER) ]
+ +-----------------------------------------------------------------------------+
+ |  React 19 UI | Top Progress Bar | Web Audio DSP Nodes | WebSocket Client   |
+ +-----------------------------------------------------------------------------+
+         |                                           ^
+         | REST API (HTTP)                           | WebRTC P2P Voice
+         | & WebSockets (Real-time)                  | (Direct between browsers)
+         v                                           v
+ +-----------------------------------+     +-----------------------------------+
+ |   LANE 1: CONTROL TOWER (BACKEND) |     |   LANE 2: PEER VOICE MESH         |
+ |   (Fastify Node.js + TypeScript)  |     |   (WebRTC Direct Mesh)            |
+ |                                   |     |                                   |
+ | - Auth Routes (Argon2id Hash)     |     | [Player A] <====================> |
+ | - Bot Protection (Honeypot/Timer) |     |            Direct Audio Packets   |
+ | - Room Moderation & Kicking       |     |                  (Opus 64kbps)    |
+ | - WebSocket Push Gateway          |     | [Player B] <====================> |
+ | - Rate Limiter (Sliding Window)   |     |                                   |
+ +-----------------------------------+     +-----------------------------------+
+         |                                                   ^
+         | SQL Queries                                       | STUN IP Lookup
+         v                                                   v
+ +-----------------------------------+             +-------------------+
+ |   PERSISTENCE LAYER (DATABASE)    |             | GOOGLE STUN POOL  |
+ |   (PostgreSQL + Drizzle ORM)      |             | (stun.l.google...)|
+ |                                   |             +-------------------+
+ | - users        - room_members     |
+ | - sessions     - messages         |
+ | - friendships  - music_queue      |
+ | - rooms        - user_blocks      |
+ +-----------------------------------+
+================================================================================
 ```
 
 ---
 
 ## Key Features
 
-### 🎙️ Discord-Grade Studio DSP Voice Architecture
-- **24 dB/octave Butterworth High-Pass Filter (80 Hz)**: Strips desk rumbles, laptop vibrations, and HVAC hum.
-- **Dual Electrical Hum Notch Filters (50 Hz & 60 Hz, Q = 30)**: Cleans mains hum without affecting vocal tone.
-- **Parametric Vocal Peaking Filter (2.8 kHz, +2.5 dB, Q = 1.2)**: Enhances vocal articulation and presence.
-- **High-Frequency Cutoff (11 kHz)**: Eliminates coil whine, monitor interference, and harsh static hiss.
-- **Broadcast AGC Dynamics Compressor**: Prevents microphone clipping when shouting and boosts quiet speech.
-- **Opus Codec Optimization**: Injects `usedtx=1`, `useinbandfec=1`, and optimal bitrate targets into WebRTC SDP negotiation for packet loss resilience.
+### 🎙️ Advanced Studio DSP Voice Architecture
+- **24 dB/octave Butterworth High-Pass Filter (80 Hz)**: Strips desk vibrations, mechanical keyboard rumbles, and air conditioning hum.
+- **Dual Electrical Hum Notch Filters (50 Hz & 60 Hz, Q = 30)**: Eliminates power cord noise without degrading vocal warmth.
+- **Parametric Vocal Peaking Filter (2.8 kHz, +2.5 dB, Q = 1.2)**: Enhances speech intelligibility and crispness.
+- **High-Frequency Cutoff (11 kHz)**: Removes coil whine, backlight buzz, and harsh sibilance.
+- **Broadcast Dynamics Compressor**: Automatically levels loud shouts and quiet whispers to keep room volume balanced.
+- **Real-Time Voice Activity Detection (VAD)**: Calculates RMS audio volume 60 times per second to illuminate avatars with an emerald green pulse ring when speaking.
+- **Zero Media Costs ($0 Bills)**: Direct WebRTC P2P mesh completely bypasses centralized media servers.
+
+### ⚡ Instant Visual Feedback & Top Progress Bar
+- **Global Network Activity Interceptor**: Tracks all outbound API requests in `src/lib/api.ts` via an active request bus (`onNetworkLoading`).
+- **Top Glowing Progress Bar (`TopLoadingBar`)**: An indigo-to-accent neon beam glides across the top edge of the viewport the moment any network request begins, hitting 100% on completion.
+- **3-Second Reassurance Banner**: Automatically presents a floating pill (*"Connecting to EchoWire server..."*) if a request takes longer than 3 seconds (e.g. cold-booting servers).
+- **Per-Button Micro-Interactions**: Inline animated SVG spinners and disabled states on room joining (*"Joining..."*), room creation (*"Creating..."*), authentication (*"Signing in..."*, *"Creating account..."*), and friend/invite actions.
+- **Fluid Transitions**: Subtle fade-in animations when switching views for a smooth, app-like feel.
+
+### 👑 Room Moderation & Owner Privileges
+- **Owner-Only Kick**: Room creators can moderate rooms with an exclusive red **Kick** action. Ordinary members cannot access or spoof kick endpoints.
+- **Instant WebRTC Severing**: Kicking a member immediately dispatches `room:kicked`, removes them from `room_members`, and terminates all peer voice connections.
+- **Kicked User Notification**: The kicked user is cleanly returned to the lobby with a bottom-right notification toast detailing the action.
+
+### 🔔 10-Second Toast Notification System
+- **Real-Time WebSocket Push**: Dispatches instant notifications for incoming friend requests, friend acceptances, room invites, and moderation actions.
+- **Non-Intrusive Bottom-Right Cards**: Positioned to avoid disrupting gaming or chat.
+- **Animated Countdown Bar**: Each notification features an animated 10-second timer bar and automatically dismisses smoothly if ignored.
+- **One-Click Actions**: Includes interactive **Accept & Join** / **Decline** for room invites and **View Requests** for friend connections.
+
+### 🟢 User Presence & Appearance
+- **Status Selector**: Choose between 🟢 **Online**, 💤 **Do Not Disturb (DND)**, and 🎧 **In Room**.
+- **Visual Badges**: Illustrated with vibrant indicator dots, sleeping icons, and miniature headphone badges across the sidebar, friends list, and profile.
+- **Instant Sync**: Updates persist to the database and sync across peers in real time.
 
 ### 🎵 Synchronized Room Music Player
-- Search and stream YouTube audio directly within voice channels.
-- Shared queue management with position reordering.
-- Synchronized play, pause, and timestamp scrubbing across all room participants in real-time.
+- Synchronized YouTube audio streaming directly inside voice channels.
+- Shared queue management with track additions and skipping.
+- Epoch timestamp synchronization (`music:sync`) ensures all room members hear music in perfect sync regardless of when they join.
 
-### 💬 Real-Time Messaging & Channels
-- Text channels with low-latency WebSocket communication.
-- Message editing, pinned announcements, and live typing/speaker indicators.
-- Direct Messaging (DM) system and mutual friend management (requests, accepts, blocks).
+### 📜 DPDP Act 2023 Statutory Compliance
+- **Statutory Notice (Section 5)**: Explicit notice detailing specified personal data collection and lawful processing purposes.
+- **Affirmative Unconditional Consent (Section 6)**: Mandatory legal consent modal (`LegalModal.tsx`) with zero pre-ticked checkboxes.
+- **Zero Voice Recording Guarantee**: Voice audio travels exclusively via peer-to-peer WebRTC connections. EchoWire servers never record, listen to, store, analyze, or transcribe any voice communication.
+- **Data Principal Rights (Sections 11–13)**: Self-serve profile updates, data correction, account erasure, and nominated representative pathways.
+- **Grievance Redressal**: Formal Grievance Officer channel (`privacy@echowire.app`) and statutory notice of complaint rights to the **Data Protection Board of India (DPBI)**.
 
-### 🔒 Enterprise-Grade Security & Authentication
-- **Argon2id** password hashing with salt generation.
-- **Google OAuth 2.0 (Google Identity Services)**: Cryptographically verified against Google's `tokeninfo` endpoint.
-- **"Keep Me Signed In"**: Dual-tier storage (`localStorage` vs. `sessionStorage`) with persistent 30-day cookie vs. browser session cookie.
-- **Zoom-Style Instant Guest Mode**: Join voice rooms instantly with a temporary display name without signing up.
-- **Rate Limiting**: Token-bucket algorithm across sensitive endpoints (auth, room creation, song search).
-- **CORS & CSP Hardened**: Custom origin filtering and strict security headers via Fastify Helmet.
+### 🛡️ Enterprise-Grade Security & Anti-Bot Defense
+- **Argon2id Password Hashing**: Memory-hard key derivation to prevent brute-force cracking.
+- **Google Identity Services (GIS)**: Cryptographically verified Google OAuth 2.0.
+- **Anti-Bot Invisible Honeypot**: Hidden `website_hp` input traps automated spam scrapers.
+- **Submission Timing Defense**: Rejects superhuman sub-second form submissions (< 750ms).
+- **Helmet HTTP Security**: Hardened HTTP headers (`frameguard: deny`, `noSniff: true`, `xssFilter: true`, `strict-origin-when-cross-origin`).
+- **Sliding-Window Rate Limiting**: Protects authentication, room creation, and invitation endpoints.
 
 ### 🗄️ Hybrid Database Engine
 - **Production**: Serverless PostgreSQL via [Neon.tech](https://neon.tech) with connection pooling and SSL encryption.
 - **Local Development**: Embedded zero-config [PGlite](https://pglite.dev/) engine (runs real PostgreSQL in-memory/file without requiring a local Postgres installation).
+
+---
+
+## 📖 Living Handbook
+
+EchoWire maintains a comprehensive, beginner-friendly system handbook documenting the engineering, logic, database columns, and architectural decisions behind the entire platform:
+
+* **[ECHOWIRE_HANDBOOK.md](file:///ECHOWIRE_HANDBOOK.md)** — Formatted Markdown version with tables and Mermaid architecture diagrams.
+* **[ECHOWIRE_HANDBOOK.txt](file:///ECHOWIRE_HANDBOOK.txt)** — Plain-text version readable on any device without markdown viewers.
 
 ---
 
@@ -88,11 +142,12 @@ EchoWire is an open-source, lightweight alternative to Discord designed for high
 | Layer | Technologies |
 |---|---|
 | **Frontend** | React 19, TypeScript, Vite 8, Tailwind CSS v4, Lucide Icons |
-| **Voice / WebRTC** | LiveKit Client (`livekit-client`), Web Audio API DSP Nodes |
-| **Backend API** | Node.js, Fastify 4, `@fastify/websocket`, `@fastify/rate-limit`, `@fastify/cors` |
-| **Authentication** | Argon2id, Google Identity Services (GIS), Crypto UUID sessions |
-| **ORM & Database** | Drizzle ORM, Neon Serverless PostgreSQL (`postgres.js`), `@electric-sql/pglite` |
+| **Voice / Media** | WebRTC Peer-to-Peer Mesh, Web Audio API DSP Pipeline |
+| **Backend API** | Node.js, Fastify 4, `@fastify/websocket`, `@fastify/rate-limit`, `@fastify/helmet`, `@fastify/cors` |
+| **Authentication** | Argon2id, Google Identity Services (GIS), Crypto UUID Sessions |
+| **Database & ORM** | Drizzle ORM, Neon Serverless PostgreSQL (`postgres.js`), `@electric-sql/pglite` |
 | **Validation** | Zod v3 |
+| **Legal** | Digital Personal Data Protection (DPDP) Act 2023 Compliant |
 
 ---
 
@@ -101,45 +156,51 @@ EchoWire is an open-source, lightweight alternative to Discord designed for high
 ```text
 echowire/
 ├── index.html                   # HTML entrypoint with Google GIS client script
+├── ECHOWIRE_HANDBOOK.md         # Comprehensive system architecture & logic handbook
+├── ECHOWIRE_HANDBOOK.txt        # Plain-text portable system handbook
+├── AGENTS.md                    # Coding agent guidelines & living documentation rules
 ├── src/                         # React 19 Frontend
-│   ├── App.tsx                  # Core state, navigation history, and view router
-│   ├── main.tsx                 # Client application root
+│   ├── App.tsx                  # Core state, navigation history, toast notifications, view router
+│   ├── main.tsx                 # Client application entrypoint
 │   ├── components/              # Reusable UI components
-│   │   ├── Sidebar.tsx          # Channel navigation, user bar, room controls
-│   │   ├── RoomView.tsx         # Voice participant grid and room text chat
-│   │   ├── MusicPlayer.tsx      # Synchronized room music playback
-│   │   ├── ProfileModal.tsx     # User profile and account preferences
-│   │   ├── DirectMessages.tsx   # Private 1-on-1 chats and friend lists
+│   │   ├── TopLoadingBar.tsx    # Glowing top progress bar & 3s wake-up notice
+│   │   ├── LegalModal.tsx       # DPDP Act 2023 Privacy Policy & Terms modal
+│   │   ├── Sidebar.tsx          # Channel navigation, user bar, voice controls
+│   │   ├── RightPanel.tsx       # Room chat & synchronized music player
+│   │   ├── GlobalMusicBar.tsx   # Persistent bottom music status bar
 │   │   └── Icons.tsx            # SVG icon library
-│   ├── views/                   # Top-level application views
-│   │   ├── AuthView.tsx         # Sign in, register, guest, and Google OAuth
-│   │   ├── ProfileView.tsx      # Standalone user profile view
-│   │   └── SettingsView.tsx     # Audio device selection & DSP toggles
+│   ├── views/                   # Application views
+│   │   ├── AuthView.tsx         # Sign in, register, guest mode, and Google OAuth
+│   │   ├── RoomsView.tsx        # Room listings, creation modal, and join states
+│   │   ├── VoiceRoomView.tsx    # Live voice grid, owner moderation, speaking indicators
+│   │   ├── FriendsView.tsx      # Mutual friends, friend requests, room invite actions
+│   │   ├── ProfileView.tsx      # Standalone user profile view & username update
+│   │   └── SettingsView.tsx     # Audio devices, studio DSP toggles, online status
 │   └── lib/
-│       ├── api.ts               # HTTP client with Bearer auth injection
-│       ├── voice.ts             # WebRTC DSP audio pipeline & LiveKit integration
-│       └── ws.ts                # WebSocket client gateway
+│       ├── api.ts               # HTTP client with global loading tracking & auth injection
+│       ├── voice.ts             # WebRTC P2P voice mesh & Web Audio DSP filters
+│       └── ws.ts                # Real-time WebSocket client gateway
 ├── server/                      # Fastify Backend
 │   ├── src/
 │   │   ├── index.ts             # Server entrypoint
-│   │   ├── server.ts            # Fastify server plugins, CORS, and health checks
+│   │   ├── server.ts            # Fastify plugins, CORS, Helmet security, health checks
 │   │   ├── config.ts            # Environment variables loader
-│   │   ├── db/                  # Drizzle ORM schema and migrations
+│   │   ├── db/                  # Drizzle ORM schema and database connection
 │   │   │   ├── index.ts         # Hybrid DB connection (Neon Postgres / PGlite)
 │   │   │   └── schema.ts        # Database table schemas
 │   │   ├── routes/              # REST API controllers
-│   │   │   ├── auth.routes.ts   # Authentication, verification, and Google login
-│   │   │   ├── rooms.routes.ts  # Room lifecycle, participants, and permissions
-│   │   │   ├── messages.routes.ts # Channel and DM message queries
-│   │   │   └── friends.routes.ts  # Friendship requests and blocking
+│   │   │   ├── auth.routes.ts   # Authentication, verification, profile update, Google login
+│   │   │   ├── rooms.routes.ts  # Room lifecycle, owner kick endpoint, invites
+│   │   │   ├── messages.routes.ts # Channel message queries
+│   │   │   └── friends.routes.ts  # Friendship requests, acceptance, blocking
 │   │   ├── services/            # Business logic
 │   │   │   ├── auth.service.ts  # Argon2id hashing and session management
 │   │   │   ├── email.service.ts # Verification and reset emails (Resend/SMTP)
-│   │   │   └── rate-limit.service.ts # In-memory rate limiting
+│   │   │   └── rate-limit.service.ts # In-memory sliding-window rate limiting
 │   │   └── websocket/
-│   │       └── gateway.ts       # Room pub/sub, chat broadcast, and voice sync
+│   │       └── gateway.ts       # Room pub/sub, chat broadcast, voice state sync, push alerts
 │   └── package.json
-└── package.json                 # Monorepo / root package definition
+└── package.json                 # Root monorepo package definition
 ```
 
 ---
@@ -148,7 +209,7 @@ echowire/
 
 ### Prerequisites
 - **Node.js**: `v20.x` or higher
-- **Package Manager**: `pnpm` (recommended) or `npm`
+- **Package Manager**: `npm` or `pnpm`
 
 ### 1. Clone the Repository
 ```bash
@@ -158,8 +219,8 @@ cd echowire
 
 ### 2. Install Dependencies
 ```bash
-pnpm install
-cd server && pnpm install && cd ..
+npm install
+cd server && npm install && cd ..
 ```
 
 ### 3. Configure Environment Variables
@@ -175,12 +236,7 @@ SESSION_SECRET=a_very_long_secure_random_string_here_32_bytes_min
 # Optional: Remote PostgreSQL (Leave blank to use embedded zero-config PGlite)
 DATABASE_URL=
 
-# LiveKit SFU (Can use LiveKit Cloud free tier or local Docker instance)
-LIVEKIT_URL=wss://your-project.livekit.cloud
-LIVEKIT_API_KEY=your_api_key
-LIVEKIT_API_SECRET=your_api_secret
-
-# Google OAuth Client ID
+# Google OAuth Client ID (from Google Cloud Console)
 GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
 ```
 
@@ -189,10 +245,10 @@ Run both backend and frontend concurrently:
 
 ```bash
 # Terminal 1: Fastify Backend
-pnpm --filter echowire-server dev
+cd server && npm run dev
 
 # Terminal 2: Vite Frontend
-pnpm dev
+npm run dev
 ```
 
 Open your browser to `http://localhost:5173`.
@@ -213,8 +269,8 @@ EchoWire is built for zero-cost deployment using cloud free tiers:
 2. Root Directory: `server`
 3. Build Command: `npm run build`
 4. Start Command: `npm run start`
-5. Configure your Environment Variables (`DATABASE_URL`, `SESSION_SECRET`, `CLIENT_ORIGIN`, `LIVEKIT_*`).
-6. *Optional*: Prevent 15-minute free tier sleeping by pinging `https://your-service.onrender.com/api/health` every 10 minutes via [cron-job.org](https://cron-job.org) or [UptimeRobot](https://uptimerobot.com).
+5. Configure your Environment Variables (`DATABASE_URL`, `SESSION_SECRET`, `CLIENT_ORIGIN`, `GOOGLE_CLIENT_ID`).
+6. *Recommendation*: Prevent 15-minute free tier sleeping by pinging `https://your-service.onrender.com/api/health` every 10 minutes via [cron-job.org](https://cron-job.org) or [UptimeRobot](https://uptimerobot.com).
 
 ### 3. Frontend: [Vercel](https://vercel.com)
 1. Import the repository into Vercel.
