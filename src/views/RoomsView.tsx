@@ -5,7 +5,7 @@ import { apiFetch } from '../lib/api';
 
 interface Props {
   rooms: Room[];
-  onJoin: (id: string) => void;
+  onJoin: (id: string) => void | Promise<void>;
   onRefresh?: () => void;
   currentUser?: any;
 }
@@ -18,10 +18,21 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
   const [maxMembers, setMaxMembers] = useState('8');
   const [textChat, setTextChat] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const inputCls =
     'w-full bg-zinc-900 border border-zinc-800 text-zinc-100 text-sm rounded px-3 py-2 outline-none focus:border-accent placeholder:text-zinc-600 transition-colors';
+
+  const handleJoinRoom = async (id: string) => {
+    if (joiningId) return;
+    setJoiningId(id);
+    try {
+      await onJoin(id);
+    } finally {
+      setJoiningId(null);
+    }
+  };
 
   const handleCreateRoom = async () => {
     if (!roomName.trim()) {
@@ -88,7 +99,9 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
             <RoomRow
               key={room.id}
               room={room}
-              onJoin={onJoin}
+              onJoin={handleJoinRoom}
+              isJoining={joiningId === room.id}
+              isAnyJoining={!!joiningId}
               onDelete={handleDeleteRoom}
               currentUser={currentUser}
             />
@@ -144,9 +157,19 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
                 <button
                   onClick={handleCreateRoom}
                   disabled={creating}
-                  className="flex-1 bg-accent text-white text-xs font-semibold py-2 rounded-lg hover:bg-accent/90 transition-all cursor-pointer disabled:opacity-50 shadow"
+                  className="flex-1 flex items-center justify-center gap-2 bg-accent text-white text-xs font-semibold py-2 rounded-lg hover:bg-accent/90 transition-all cursor-pointer disabled:opacity-50 shadow"
                 >
-                  {creating ? 'Creating...' : 'Create Room'}
+                  {creating ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5 text-white flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    'Create Room'
+                  )}
                 </button>
               </div>
             </div>
@@ -162,19 +185,25 @@ function RoomRow({
   onJoin,
   onDelete,
   currentUser,
+  isJoining = false,
+  isAnyJoining = false,
 }: {
   room: Room;
   onJoin: (id: string) => void;
   onDelete: (id: string, name: string) => void;
   currentUser?: any;
+  isJoining?: boolean;
+  isAnyJoining?: boolean;
 }) {
   const isFull = room.memberCount >= room.maxMembers;
   const isOwner = currentUser?.id ? room.ownerId === currentUser.id : (room as any).isOwner;
 
   return (
     <div
-      onClick={() => !isFull && onJoin(room.id)}
-      className="flex items-center justify-between gap-3 px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800/80 hover:border-zinc-700 transition-all cursor-pointer group shadow-sm active:scale-[0.99]"
+      onClick={() => !isFull && !isAnyJoining && onJoin(room.id)}
+      className={`flex items-center justify-between gap-3 px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 border ${
+        isJoining ? 'border-accent/60 bg-zinc-900/90 shadow-md' : 'border-zinc-800/80 hover:border-zinc-700'
+      } transition-all cursor-pointer group shadow-sm active:scale-[0.99]`}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
@@ -195,7 +224,7 @@ function RoomRow({
           <span>{room.memberCount} / {room.maxMembers} in room</span>
           {room.description && room.description !== 'Personal Room' && (
             <>
-              <span>�</span>
+              <span>•</span>
               <span className="truncate">{room.description}</span>
             </>
           )}
@@ -237,10 +266,20 @@ function RoomRow({
             e.stopPropagation();
             onJoin(room.id);
           }}
-          disabled={isFull}
-          className="text-xs font-semibold px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-accent text-white hover:bg-accent/90 active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed transition-all shadow cursor-pointer"
+          disabled={isFull || isAnyJoining}
+          className="flex items-center justify-center gap-1.5 min-w-[70px] text-xs font-semibold px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-accent text-white hover:bg-accent/90 active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed transition-all shadow cursor-pointer"
         >
-          Join
+          {isJoining ? (
+            <>
+              <svg className="animate-spin h-3.5 w-3.5 text-white flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span>Joining...</span>
+            </>
+          ) : (
+            'Join'
+          )}
         </button>
       </div>
     </div>

@@ -13,6 +13,7 @@ import ProfileView from './views/ProfileView';
 import Sidebar from './components/Sidebar';
 import RightPanel from './components/RightPanel';
 import GlobalMusicBar from './components/GlobalMusicBar';
+import TopLoadingBar from './components/TopLoadingBar';
 
 export interface ToastNotification {
   id: string;
@@ -633,6 +634,7 @@ export default function App() {
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center bg-zinc-950 text-zinc-400">
+        <TopLoadingBar />
         <p className="text-sm">Connecting to EchoWire...</p>
       </div>
     );
@@ -640,29 +642,32 @@ export default function App() {
 
   if (!currentUser) {
     return (
-      <AuthView
-        mode={authMode}
-        onModeChange={navigateAuth}
-        onAuth={(user?: any) => {
-          if (user) {
-            setCurrentUser(user);
-            wsClient.connect();
-            loadRooms();
-            loadFriends();
-            loadInvites();
-          } else {
-            apiFetch('/api/auth/me')
-              .then((d) => {
-                setCurrentUser(d.user);
-                wsClient.connect();
-                loadRooms();
-                loadFriends();
-                loadInvites();
-              })
-              .catch(console.error);
-          }
-        }}
-      />
+      <>
+        <TopLoadingBar />
+        <AuthView
+          mode={authMode}
+          onModeChange={navigateAuth}
+          onAuth={(user?: any) => {
+            if (user) {
+              setCurrentUser(user);
+              wsClient.connect();
+              loadRooms();
+              loadFriends();
+              loadInvites();
+            } else {
+              apiFetch('/api/auth/me')
+                .then((d) => {
+                  setCurrentUser(d.user);
+                  wsClient.connect();
+                  loadRooms();
+                  loadFriends();
+                  loadInvites();
+                })
+                .catch(console.error);
+            }
+          }}
+        />
+      </>
     );
   }
 
@@ -671,6 +676,7 @@ export default function App() {
 
   return (
     <div className="flex h-[100dvh] w-full bg-zinc-950 text-zinc-100 overflow-hidden select-none sm:select-auto">
+      <TopLoadingBar />
       <Sidebar
         currentUser={currentUser}
         navView={navView}
@@ -684,7 +690,7 @@ export default function App() {
         onDisconnect={handleDisconnect}
       />
 
-            <main className="flex-1 flex min-w-0 overflow-hidden relative pb-16 sm:pb-0">
+      <main className="flex-1 flex min-w-0 overflow-hidden relative pb-16 sm:pb-0 animate-in fade-in duration-150">
         {navView === 'rooms' && activeRoom ? (
           <VoiceRoomView
             room={activeRoom}

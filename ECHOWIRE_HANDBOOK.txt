@@ -398,6 +398,23 @@ Feature 4: Synchronized YouTube Music Playback
 3. All YouTube players jump to that exact second, allowing everyone in the room to hear
    the beat drop simultaneously.
 
+Feature 5: Global Network Activity Tracker & Instant Button Feedback
+1. On free-tier cloud hosting or slow cellular networks, API calls may take a brief moment.
+   Without visual feedback, users assume the website is frozen or ignored their click, leading to
+   frantic double-clicking.
+2. In src/lib/api.ts, a global request counter (activeRequestsCount) wraps every single apiFetch()
+   request in a try...finally block. Whenever network traffic starts or stops, an event listener
+   onNetworkLoading alerts UI subscribers with zero prop-drilling.
+3. Mounted at the root of the app (TopLoadingBar), an indigo-to-accent laser bar glides across the
+   top edge of the browser window the millisecond any network request begins, and smoothly hits 100%
+   when all requests finish.
+4. If an operation takes longer than 3 seconds (such as a sleeping backend spinning up), a gentle
+   floating badge appears: "Connecting to EchoWire server..." with a spinning loader, giving users
+   clarity and confidence.
+5. High-impact buttons (Sign In, Create Room, Join Room, Accept Friend, Decline, Invite to Room)
+   immediately display an inline spinning icon, change text (e.g., "Joining...", "Creating..."), and
+   disable re-clicking to eliminate duplicate requests.
+
 
 ================================================================================
 CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION
@@ -405,6 +422,9 @@ CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION
 
 - Peer-to-Peer WebRTC: Zero server bandwidth costs ($0 bills), 20ms ultra-low latency,
   and legal DPDP compliance by guaranteeing voice is never stored.
+- Global Request Interceptor & Top Bar: Local loading states in every single component lead to
+  prop-drilling and duplicated code; a global network bus automatically triggers instant visual
+  feedback for every API call across the entire app.
 - Argon2id Hashing: SHA-256 is vulnerable to GPU clusters (billions of guesses/sec).
   Argon2id requires heavy computer RAM, making brute-force cracking mathematically impossible.
 - Invisible Honeypot + Timing: Blocks 100% of bots without annoying human users with

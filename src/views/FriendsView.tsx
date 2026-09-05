@@ -88,21 +88,30 @@ export default function FriendsView({ friends, activeRoom, onRefresh, invites = 
     }
   }
 
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null)
+  const [actionInviteId, setActionInviteId] = useState<string | null>(null)
+
   const handleAccept = async (id: string) => {
+    setActionLoadingId(id)
     try {
       await apiFetch(`/api/friends/${id}/accept`, { method: 'POST' })
       onRefresh?.()
     } catch (err: any) {
       alert(err.message || 'Failed to accept')
+    } finally {
+      setActionLoadingId(null)
     }
   }
 
   const handleDecline = async (id: string) => {
+    setActionLoadingId(id)
     try {
       await apiFetch(`/api/friends/${id}/reject`, { method: 'POST' })
       onRefresh?.()
     } catch (err: any) {
       alert(err.message || 'Failed to reject')
+    } finally {
+      setActionLoadingId(null)
     }
   }
 
@@ -226,16 +235,44 @@ export default function FriendsView({ friends, activeRoom, onRefresh, invites = 
 
                   <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800/50 flex-shrink-0">
                     <button
-                      onClick={() => onDeclineInvite && onDeclineInvite(inv.id)}
-                      className="flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
+                      disabled={actionInviteId === inv.id}
+                      onClick={async () => {
+                        if (!onDeclineInvite) return;
+                        setActionInviteId(inv.id);
+                        try {
+                          await onDeclineInvite(inv.id);
+                        } finally {
+                          setActionInviteId(null);
+                        }
+                      }}
+                      className="flex-1 sm:flex-none px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
                     >
                       Decline
                     </button>
                     <button
-                      onClick={() => onAcceptInvite && onAcceptInvite(inv)}
-                      className="flex-1 sm:flex-none px-4 py-1.5 rounded-lg bg-accent hover:bg-accent/90 text-white text-xs font-semibold transition-all cursor-pointer shadow active:scale-95"
+                      disabled={actionInviteId === inv.id}
+                      onClick={async () => {
+                        if (!onAcceptInvite) return;
+                        setActionInviteId(inv.id);
+                        try {
+                          await onAcceptInvite(inv);
+                        } finally {
+                          setActionInviteId(null);
+                        }
+                      }}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 min-w-[100px] px-4 py-1.5 rounded-lg bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-xs font-semibold transition-all cursor-pointer shadow active:scale-95"
                     >
-                      Accept & Join
+                      {actionInviteId === inv.id ? (
+                        <>
+                          <svg className="animate-spin h-3.5 w-3.5 text-white flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          <span>Joining...</span>
+                        </>
+                      ) : (
+                        'Accept & Join'
+                      )}
                     </button>
                   </div>
                 </div>
@@ -252,6 +289,7 @@ export default function FriendsView({ friends, activeRoom, onRefresh, invites = 
                 friend={f}
                 activeRoom={activeRoom}
                 activeMenuId={activeMenuId}
+                isActionLoading={actionLoadingId === f.id}
                 onToggleMenu={(id) => setActiveMenuId((prev) => (prev === id ? null : id))}
                 onAccept={handleAccept}
                 onDecline={handleDecline}
@@ -269,6 +307,7 @@ function FriendRow({
   friend,
   activeRoom,
   activeMenuId,
+  isActionLoading = false,
   onToggleMenu,
   onAccept,
   onDecline,
@@ -277,12 +316,16 @@ function FriendRow({
   friend: Friend
   activeRoom?: any
   activeMenuId: string | null
+  isActionLoading?: boolean
   onToggleMenu: (id: string) => void
   onAccept: (id: string) => void
   onDecline: (id: string) => void
   onRemove: (id: string, name: string) => void
 }) {
   const [copied, setCopied] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteSuccess, setInviteSuccess] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   const statusColor: Record<string, string> = {
     online: 'bg-online',
@@ -342,15 +385,24 @@ function FriendRow({
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => onAccept(friend.id)}
-              className="flex items-center gap-1 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-white px-2.5 py-1.5 rounded text-xs font-semibold transition-colors cursor-pointer active:scale-95 shadow-sm"
+              disabled={isActionLoading}
+              className="flex items-center gap-1 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-white px-2.5 py-1.5 rounded text-xs font-semibold transition-all cursor-pointer active:scale-95 shadow-sm disabled:opacity-50"
               title="Accept friend request"
             >
-              <IconCheck size={13} />
-              <span>Accept</span>
+              {isActionLoading ? (
+                <svg className="animate-spin h-3 w-3 text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              ) : (
+                <IconCheck size={13} />
+              )}
+              <span>{isActionLoading ? 'Accepting...' : 'Accept'}</span>
             </button>
             <button
               onClick={() => onDecline(friend.id)}
-              className="flex items-center gap-1 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 px-2.5 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer active:scale-95"
+              disabled={isActionLoading}
+              className="flex items-center gap-1 bg-zinc-800 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 px-2.5 py-1.5 rounded text-xs font-medium transition-all cursor-pointer active:scale-95 disabled:opacity-50"
               title="Decline friend request"
             >
               <IconX size={13} />
@@ -382,7 +434,7 @@ function FriendRow({
             {isMenuOpen && (
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="absolute right-0 top-full mt-1 w-48 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl p-1.5 z-50 text-xs space-y-1"
+                className="absolute right-0 top-full mt-1 w-52 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl p-1.5 z-50 text-xs space-y-1"
               >
                 <div className="px-2 py-1 border-b border-zinc-800">
                   <p className="font-semibold text-zinc-200 truncate">{friend.username}</p>
@@ -390,32 +442,58 @@ function FriendRow({
                 </div>
 
                 {activeRoom && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        await apiFetch('/api/rooms/invites', {
-                          method: 'POST',
-                          body: JSON.stringify({
+                  <div>
+                    <button
+                      disabled={inviting || inviteSuccess}
+                      onClick={async () => {
+                        setInviting(true);
+                        setInviteError(null);
+                        try {
+                          await apiFetch('/api/rooms/invites', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              targetUserId: friend.userId,
+                              roomId: activeRoom.id,
+                              roomName: activeRoom.name,
+                            }),
+                          });
+                          wsClient.send('room:invite', {
                             targetUserId: friend.userId,
                             roomId: activeRoom.id,
                             roomName: activeRoom.name,
-                          }),
-                        });
-                        wsClient.send('room:invite', {
-                          targetUserId: friend.userId,
-                          roomId: activeRoom.id,
-                          roomName: activeRoom.name,
-                        });
-                        setMessage({ type: 'ok', text: `Invite to "${activeRoom.name}" sent to ${friend.username}! (Valid 5 mins)` });
-                        setTimeout(() => setMessage(null), 3000);
-                      } catch (e: any) {
-                        setMessage({ type: 'err', text: e.message || 'Failed to send invite' });
-                      }
-                    }}
-                    className="w-full text-left px-2 py-1.5 rounded hover:bg-accent/20 text-accent font-medium transition-colors cursor-pointer"
-                  >
-                    Invite to ${activeRoom.name}
-                  </button>
+                          });
+                          setInviteSuccess(true);
+                          setTimeout(() => {
+                            setInviteSuccess(false);
+                            onToggleMenu(friend.id);
+                          }, 1800);
+                        } catch (e: any) {
+                          setInviteError(e.message || 'Failed to send invite');
+                          setTimeout(() => setInviteError(null), 3500);
+                        } finally {
+                          setInviting(false);
+                        }
+                      }}
+                      className="w-full text-left px-2 py-1.5 rounded hover:bg-accent/20 text-accent font-medium transition-colors cursor-pointer flex items-center justify-between disabled:opacity-60"
+                    >
+                      <span className="truncate mr-2">
+                        {inviting
+                          ? `Inviting to ${activeRoom.name}...`
+                          : inviteSuccess
+                          ? `✓ Invite Sent!`
+                          : `Invite to ${activeRoom.name}`}
+                      </span>
+                      {inviting && (
+                        <svg className="animate-spin h-3.5 w-3.5 text-accent flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      )}
+                    </button>
+                    {inviteError && (
+                      <p className="text-[10px] text-red-400 px-2 pt-0.5">{inviteError}</p>
+                    )}
+                  </div>
                 )}
 
                 <button

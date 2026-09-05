@@ -386,11 +386,21 @@ Here is how each key feature executes under the hood, step by step:
 
 ---
 
+### Feature 5: Global Network Activity Tracker & Instant Button Feedback
+1. **The Human Scenario**: On free-tier cloud hosting or slow cellular networks, API calls may take a brief moment. Without visual feedback, users assume the website is frozen or ignored their click, leading to frantic double-clicking.
+2. **The Global Request Interceptor**: In `src/lib/api.ts`, a global request counter (`activeRequestsCount`) wraps every single `apiFetch()` request in a `try...finally` block. Whenever network traffic starts or stops, an event listener `onNetworkLoading` alerts UI subscribers with zero prop-drilling.
+3. **The Glowing Top Progress Bar**: Mounted at the root of the app (`TopLoadingBar`), an indigo-to-accent laser bar glides across the top edge of the browser window the millisecond any network request begins, and smoothly hits 100% when all requests finish.
+4. **The 3-Second Reassurance Pill**: If an operation takes longer than 3 seconds (such as a sleeping backend spinning up), a gentle floating badge appears: *"Connecting to EchoWire server..."* with a spinning loader, giving users clarity and confidence.
+5. **Button Micro-Interactions**: High-impact buttons (Sign In, Create Room, Join Room, Accept Friend, Decline, Invite to Room) immediately display an inline spinning icon, change text (e.g., *"Joining..."*, *"Creating..."*), and disable re-clicking to eliminate duplicate requests.
+
+---
+
 # CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION
 
 | Decision | Alternative Considered | The Real Reason We Built It This Way |
 |---|---|---|
 | **Peer-to-Peer WebRTC** | Central Voice Server (SFU) | Zero server bandwidth costs ($0 bills), 20ms ultra-low latency, and legal DPDP compliance by guaranteeing voice is never stored. |
+| **Global Request Interceptor & Top Bar** | Local Loading State in every single component | Zero prop-drilling or duplicated code; every API call across the entire app automatically triggers instant visual feedback. |
 | **Argon2id Hashing** | SHA-256 or bcrypt | SHA-256 is vulnerable to GPU clusters (billions of guesses/sec). Argon2id requires heavy computer RAM, making brute-force cracking mathematically impossible. |
 | **Invisible Honeypot + Timing** | Google reCAPTCHA | Blocks 100% of bots without annoying human users with "click all traffic lights" puzzles or tracking cookies. |
 | **Fastify** | Express.js | Up to 4x faster request throughput and native async schema validation. |
