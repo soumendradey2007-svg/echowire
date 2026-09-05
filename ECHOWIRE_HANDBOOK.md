@@ -419,6 +419,13 @@ Here is how each key feature executes under the hood, step by step:
    * When a registered user creates a custom room, `POST /api/rooms` atomically enrolls the creator into `room_members` as `'owner'` during creation.
    * The read-only `GET /api/rooms` endpoint no longer deletes fresh rooms with 0 members. Abandoned room expiration is strictly scoped to non-personal rooms with 0 members that are older than 15 minutes.
    * This completely prevents foreign key race conditions (`room_members_room_id_fkey`).
+5. **Default Permanent Personal Rooms (Non-Deletable)**:
+   * Personal rooms (`Username's Room`) are the default, permanent home voice lounges automatically provided for every registered member.
+   * Personal rooms **cannot be deleted**:
+     * In the UI ([`RoomsView.tsx`](file:///C:/Users/soume/Desktop/Voicechat%20(Echodown)/Follow%20Markdown%20File/src/views/RoomsView.tsx)), the delete trash icon is completely stripped from personal rooms (`isOwner && !isPersonal`).
+     * In `handleDeleteRoom`, an explicit guard blocks any deletion attempt on personal rooms.
+     * On the server ([`rooms.routes.ts`](file:///C:/Users/soume/Desktop/Voicechat%20(Echodown)/Follow%20Markdown%20File/server/src/routes/rooms.routes.ts)), `DELETE /api/rooms/:id` checks `if (room.description === 'Personal Room')` and rejects the request with `403 Forbidden: "Personal rooms are default and cannot be deleted."`.
+     * Only user-created custom rooms display the delete option for their respective owner.
 
 ---
 

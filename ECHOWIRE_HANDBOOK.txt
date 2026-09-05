@@ -458,6 +458,14 @@ Feature 7: Public vs. Private Channels & Guest ID Isolation
    - GET /api/rooms no longer aggressively deletes empty rooms on read; empty room expiration
      is reserved for genuinely abandoned channels older than 15 minutes.
    - This completely eliminates the foreign key constraint violation (room_members_room_id_fkey).
+4. Default Permanent Personal Rooms (Non-Deletable):
+   - Personal rooms ("Username's Room") are default permanent voice lounges for registered members.
+   - Personal rooms cannot be deleted:
+     - In RoomsView.tsx, the delete trash icon is completely hidden for personal rooms (isOwner && !isPersonal).
+     - handleDeleteRoom explicitly rejects deleting personal rooms.
+     - On the backend, DELETE /api/rooms/:id checks if room.description === 'Personal Room' and returns
+       403 Forbidden: "Personal rooms are default and cannot be deleted."
+     - Only created custom rooms display the delete option for their owner.
 
 
 ================================================================================

@@ -69,6 +69,11 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
   };
 
   const handleDeleteRoom = async (id: string, name: string) => {
+    const targetRoom = rooms.find((r) => r.id === id);
+    if (targetRoom?.description === 'Personal Room') {
+      alert('Personal rooms are permanent default spaces and cannot be deleted.');
+      return;
+    }
     if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
     try {
       await apiFetch(`/api/rooms/${id}`, { method: 'DELETE' });
@@ -243,6 +248,7 @@ function RoomRow({
   isJoining?: boolean;
   isAnyJoining?: boolean;
 }) {
+  const isPersonal = room.description === 'Personal Room';
   const isFull = room.memberCount >= room.maxMembers;
   const isOwner = currentUser?.id ? room.ownerId === currentUser.id : (room as any).isOwner;
   const isGuest = currentUser?.isGuest || false;
@@ -269,7 +275,7 @@ function RoomRow({
           <span className="text-zinc-100 text-sm font-semibold truncate">{room.name}</span>
           
           {/* Distinct Badges: Personal vs Private vs Public */}
-          {room.description === 'Personal Room' ? (
+          {isPersonal ? (
             <span className="text-[10px] text-accent bg-accent/15 border border-accent/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 flex-shrink-0">
               Personal
             </span>
@@ -285,7 +291,7 @@ function RoomRow({
             </span>
           )}
 
-          {isOwner && room.description !== 'Personal Room' && (
+          {isOwner && !isPersonal && (
             <span className="text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
               Owner
             </span>
@@ -299,7 +305,7 @@ function RoomRow({
 
         <div className="flex items-center gap-2 text-zinc-500 text-[11px] mt-1">
           <span>{room.memberCount} / {room.maxMembers} in room</span>
-          {room.description && room.description !== 'Personal Room' && (
+          {room.description && !isPersonal && (
             <>
               <span>•</span>
               <span className="truncate">{room.description}</span>
@@ -309,8 +315,8 @@ function RoomRow({
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0">
-        {/* Delete Room Button (for owner) */}
-        {isOwner && (
+        {/* Delete Room Button (only for owner of created rooms; personal rooms are default and cannot be deleted) */}
+        {isOwner && !isPersonal && (
           <button
             onClick={(e) => {
               e.stopPropagation();

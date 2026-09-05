@@ -337,6 +337,11 @@ export async function roomRoutes(app: FastifyInstance) {
       const [room] = await db.select().from(rooms).where(eq(rooms.id, id)).limit(1);
       if (!room) return reply.status(404).send({ error: 'Room not found' });
 
+      // Personal rooms are default permanent channels and cannot be deleted
+      if (room.description === 'Personal Room') {
+        return reply.status(403).send({ error: 'Personal rooms are default and cannot be deleted.' });
+      }
+
       const isGuest = auth.user.email?.endsWith('@guest.echowire.local');
       if (room.isPrivate && isGuest) {
         return reply.status(403).send({ error: 'Private rooms require a registered account. Please sign in to join.' });

@@ -92,7 +92,7 @@ EchoWire is an open-source, lightweight communication platform designed for high
 ### 🌐 Public vs. Private Channels & Guest Mode
 - **Public Channels (`🌐 Public`)**: Open to all users, including guest visitors. Anyone can browse, join, talk over WebRTC, and participate in text chat.
 - **Private Channels (`🔒 Private`)**: Exclusively reserved for registered, authenticated members. Guests attempting to join are blocked with clear, informative prompts.
-- **Personal Lounges (`💜 Personal`)**: Permanent voice channels for registered users (`Username's Room`) that never expire or auto-delete.
+- **Personal Lounges (`💜 Personal`)**: Permanent default voice channels for registered users (`Username's Room`) that never expire and **cannot be deleted**. The delete option is completely stripped for personal rooms and protected server-side with `403 Forbidden`. Only user-created custom rooms can be deleted by their owner.
 - **Unique Guest Tagging**: Every guest receives a unique UUID-derived tag (e.g. `Guest#g-4A8F`), preventing tag collision or confusion in rooms.
 - **Guest Creation Lock**: Guest accounts are scoped to join public rooms and prevented from creating rooms.
 - **Atomic Creation & Zero-Race Deletion**: Room creation atomically links the owner to the room, eliminating foreign key race conditions.
