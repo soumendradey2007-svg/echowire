@@ -40,6 +40,10 @@ export async function createServer() {
 
   await app.register(helmet, {
     contentSecurityPolicy: false,
+    frameguard: { action: 'deny' },
+    noSniff: true,
+    xssFilter: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   });
 
   await app.register(cookie, {

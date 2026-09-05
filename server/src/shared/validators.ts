@@ -11,6 +11,9 @@ export const RegisterSchema = z.object({
     .string()
     .min(8, 'Password must be at least 8 characters')
     .max(128, 'Password cannot exceed 128 characters'),
+  agreedToTerms: z.boolean().optional(),
+  website_hp: z.string().optional(),
+  formTimestamp: z.number().optional(),
 });
 
 export const LoginSchema = z.object({

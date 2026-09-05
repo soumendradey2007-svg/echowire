@@ -247,6 +247,25 @@ export async function authRoutes(app: FastifyInstance) {
       if (!rl.allowed) return reply.status(429).send({ error: 'Too many registration attempts. Please wait 1 minute.' });
 
       const body = RegisterSchema.parse(req.body);
+
+      // Bot Protection: Reject automated bots that fill in hidden honeypot fields
+      if (body.website_hp && body.website_hp.trim().length > 0) {
+        return reply.status(400).send({ error: 'Automated request detected.' });
+      }
+
+      // Bot Protection: Reject sub-second scripted submissions
+      if (body.formTimestamp && typeof body.formTimestamp === 'number') {
+        const elapsed = Date.now() - body.formTimestamp;
+        if (elapsed > 0 && elapsed < 750) {
+          return reply.status(400).send({ error: 'Form submitted too quickly. Please try again.' });
+        }
+      }
+
+      // DPDP Act 2023 Compliance: Verify affirmative consent
+      if (body.agreedToTerms === false) {
+        return reply.status(400).send({ error: 'You must agree to the Terms of Service and Privacy Policy to create an account.' });
+      }
+
       const cleanUsername = body.username.trim();
       const cleanEmail = body.email.trim().toLowerCase();
 

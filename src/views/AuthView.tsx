@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { AuthMode } from '../types';
 import { apiFetch, setAuthToken } from '../lib/api';
 import { IconEye, IconEyeOff } from '../components/Icons';
+import LegalModal from '../components/LegalModal';
 
 interface Props {
   mode: AuthMode;
@@ -23,6 +24,16 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
   const [verifyStatus, setVerifyStatus] = useState<string | null>(null);
   const [verifiedUser, setVerifiedUser] = useState<any>(null);
 
+  // Legal & DPDP Act 2023 Compliance
+  const [legalOpen, setLegalOpen] = useState(false);
+  const [legalTab, setLegalTab] = useState<'privacy' | 'terms'>('privacy');
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [guestAgreed, setGuestAgreed] = useState(false);
+
+  // Bot Protection (Honeypot + Submission timing)
+  const [honeypot, setHoneypot] = useState('');
+  const formLoadTimestamp = useRef(Date.now());
+
   const [resetToken, setResetToken] = useState<string | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [resetConfirmPassword, setResetConfirmPassword] = useState('');
@@ -34,7 +45,7 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
 
   const [googleLoaded, setGoogleLoaded] = useState(false);
   const [googleBlocked, setGoogleBlocked] = useState(false);
-  const rememberMeRef = React.useRef(rememberMe);
+  const rememberMeRef = useRef(rememberMe);
 
   useEffect(() => {
     rememberMeRef.current = rememberMe;
@@ -62,6 +73,10 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     setError(null);
     if (!guestName.trim()) {
       setError('Please enter a display name to continue');
+      return;
+    }
+    if (!guestAgreed) {
+      setError('You must agree to the Terms of Service and Privacy Policy to continue as a guest.');
       return;
     }
     setLoading(true);
@@ -179,6 +194,19 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     'w-full bg-accent text-white text-sm font-medium py-2.5 rounded hover:bg-accent/90 transition-colors cursor-pointer disabled:opacity-50';
   const linkCls = 'text-accent text-sm hover:underline cursor-pointer';
 
+  const renderLegalModal = () => (
+    <LegalModal
+      isOpen={legalOpen}
+      onClose={() => setLegalOpen(false)}
+      defaultTab={legalTab}
+      onAccept={() => {
+        setAgreedToTerms(true);
+        setGuestAgreed(true);
+        setLegalOpen(false);
+      }}
+    />
+  );
+
   const handleRegister = async () => {
     setError(null);
     if (!username.trim()) return setError('Please enter a username');
@@ -187,12 +215,22 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
     if (password !== confirmPassword) {
       return setError('Passwords do not match. Please re-enter your password.');
     }
+    if (!agreedToTerms) {
+      return setError('You must review and agree to the Terms of Service and DPDP Act 2023 Privacy Policy to create an account.');
+    }
 
     setLoading(true);
     try {
       const res = await apiFetch('/api/auth/register', {
         method: 'POST',
-        body: JSON.stringify({ username, email, password }),
+        body: JSON.stringify({
+          username,
+          email,
+          password,
+          agreedToTerms: true,
+          website_hp: honeypot,
+          formTimestamp: formLoadTimestamp.current,
+        }),
       });
       if (res.requiresVerification) {
         setEmailSentTo(email);
@@ -322,6 +360,26 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
             </div>
           </div>
         </div>
+
+        <footer className="px-8 py-4 border-t border-zinc-900 flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-500 gap-2">
+          <span>&copy; {new Date().getFullYear()} EchoWire. Built for seamless audio.</span>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => { setLegalTab('privacy'); setLegalOpen(true); }}
+              className="hover:text-zinc-300 transition-colors cursor-pointer"
+            >
+              Privacy Policy (DPDP Act 2023)
+            </button>
+            <button
+              onClick={() => { setLegalTab('terms'); setLegalOpen(true); }}
+              className="hover:text-zinc-300 transition-colors cursor-pointer"
+            >
+              Terms of Service
+            </button>
+          </div>
+        </footer>
+
+        {renderLegalModal()}
       </div>
     );
   }
@@ -363,6 +421,18 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         </div>
 
         <div className="space-y-3">
+          {/* Bot protection honeypot - invisible to legitimate users */}
+          <input
+            type="text"
+            name="website_hp"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+            style={{ display: 'none', position: 'absolute', opacity: 0, pointerEvents: 'none' }}
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden="true"
+          />
+
           <input className={inputCls} placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
           <input className={inputCls} placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           
@@ -404,6 +474,35 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
             </button>
           </div>
 
+          {/* Affirmative Consent under Section 5 & 6 of DPDP Act 2023 */}
+          <div className="flex items-start gap-2.5 pt-1 pb-1">
+            <input
+              id="agree-terms"
+              type="checkbox"
+              checked={agreedToTerms}
+              onChange={(e) => setAgreedToTerms(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded bg-zinc-900 border border-zinc-700 text-accent focus:ring-0 focus:ring-offset-0 cursor-pointer accent-accent shrink-0"
+            />
+            <label htmlFor="agree-terms" className="text-xs text-zinc-400 leading-relaxed cursor-pointer select-none">
+              I agree to the{' '}
+              <button
+                type="button"
+                onClick={() => { setLegalTab('terms'); setLegalOpen(true); }}
+                className="text-accent underline hover:text-accent/80 font-medium cursor-pointer"
+              >
+                Terms of Service
+              </button>{' '}
+              and{' '}
+              <button
+                type="button"
+                onClick={() => { setLegalTab('privacy'); setLegalOpen(true); }}
+                className="text-accent underline hover:text-accent/80 font-medium cursor-pointer"
+              >
+                Privacy Policy (DPDP Act 2023)
+              </button>.
+            </label>
+          </div>
+
           <button className={btnCls} onClick={handleRegister} disabled={loading}>
             {loading ? 'Creating account...' : 'Create account'}
           </button>
@@ -412,6 +511,7 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
         <p className="mt-5 text-center text-zinc-500 text-sm">
           Already have an account? <span className={linkCls} onClick={() => onModeChange('signin')}>Sign in</span>
         </p>
+        {renderLegalModal()}
       </AuthShell>
     );
   }
@@ -599,6 +699,35 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
             />
           </div>
 
+          {/* Affirmative Consent for Guest access */}
+          <div className="flex items-start gap-2.5 pt-1 pb-1">
+            <input
+              id="guest-agree-terms"
+              type="checkbox"
+              checked={guestAgreed}
+              onChange={(e) => setGuestAgreed(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded bg-zinc-900 border border-zinc-700 text-accent focus:ring-0 focus:ring-offset-0 cursor-pointer accent-accent shrink-0"
+            />
+            <label htmlFor="guest-agree-terms" className="text-xs text-zinc-400 leading-relaxed cursor-pointer select-none">
+              I agree to the{' '}
+              <button
+                type="button"
+                onClick={() => { setLegalTab('terms'); setLegalOpen(true); }}
+                className="text-accent underline hover:text-accent/80 font-medium cursor-pointer"
+              >
+                Terms
+              </button>{' '}
+              &{' '}
+              <button
+                type="button"
+                onClick={() => { setLegalTab('privacy'); setLegalOpen(true); }}
+                className="text-accent underline hover:text-accent/80 font-medium cursor-pointer"
+              >
+                Privacy Policy (DPDP Act 2023)
+              </button>.
+            </label>
+          </div>
+
           <button className={btnCls} onClick={handleGuestLogin} disabled={loading}>
             {loading ? 'Entering...' : 'Continue as Guest'}
           </button>
@@ -612,6 +741,7 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
             Have an account? Sign in instead
           </button>
         </div>
+        {renderLegalModal()}
       </AuthShell>
     );
   }
@@ -723,6 +853,26 @@ export default function AuthView({ mode, onModeChange, onAuth }: Props) {
           Create account
         </button>
       </div>
+
+      <div className="mt-4 pt-3 border-t border-zinc-900 text-center text-[11px] text-zinc-500 leading-relaxed">
+        By signing in, you agree to EchoWire's{' '}
+        <button
+          type="button"
+          onClick={() => { setLegalTab('terms'); setLegalOpen(true); }}
+          className="text-zinc-400 hover:text-zinc-200 underline cursor-pointer font-medium"
+        >
+          Terms of Service
+        </button>{' '}
+        and{' '}
+        <button
+          type="button"
+          onClick={() => { setLegalTab('privacy'); setLegalOpen(true); }}
+          className="text-zinc-400 hover:text-zinc-200 underline cursor-pointer font-medium"
+        >
+          Privacy Policy (DPDP Act 2023)
+        </button>.
+      </div>
+      {renderLegalModal()}
     </AuthShell>
   );
 }
