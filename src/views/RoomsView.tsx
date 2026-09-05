@@ -56,10 +56,11 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
       setShowCreate(false);
       setRoomName('');
       setRoomDesc('');
-      onRefresh?.();
+      setIsPrivate(false);
       if (res?.room?.id) {
-        onJoin(res.room.id);
+        await onJoin(res.room.id);
       }
+      onRefresh?.();
     } catch (err: any) {
       setError(err.message || 'Failed to create room');
     } finally {
@@ -77,6 +78,8 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
     }
   };
 
+  const isGuest = currentUser?.isGuest || false;
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-zinc-950">
       <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-zinc-900">
@@ -84,13 +87,20 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
           <h1 className="text-zinc-100 font-semibold text-base">Rooms</h1>
           <p className="text-zinc-500 text-xs mt-0.5">{rooms.length} available</p>
         </div>
-        <button
-          onClick={() => { setShowCreate(true); setError(null); }}
-          className="flex items-center gap-1.5 bg-accent text-white text-xs sm:text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-accent/90 active:scale-95 transition-all cursor-pointer shadow"
-        >
-          <IconPlus size={14} />
-          <span>New room</span>
-        </button>
+        {!isGuest ? (
+          <button
+            onClick={() => { setShowCreate(true); setError(null); }}
+            className="flex items-center gap-1.5 bg-accent text-white text-xs sm:text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-accent/90 active:scale-95 transition-all cursor-pointer shadow"
+          >
+            <IconPlus size={14} />
+            <span>New room</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] text-zinc-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span>Guest Mode (Public Rooms Only)</span>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 sm:p-6">
@@ -147,6 +157,44 @@ export default function RoomsView({ rooms, onJoin, onRefresh, currentUser }: Pro
                 />
               </div>
 
+              {/* Channel Privacy Type Selection */}
+              <div>
+                <label className="block text-zinc-400 text-xs font-medium mb-1.5">Channel Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsPrivate(false)}
+                    className={`flex flex-col items-start p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                      !isPrivate
+                        ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-300 ring-1 ring-emerald-500/30'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <span>🌐</span>
+                      <span>Public Channel</span>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 mt-1">Anyone can join, including guests</p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsPrivate(true)}
+                    className={`flex flex-col items-start p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                      isPrivate
+                        ? 'bg-amber-500/10 border-amber-500/50 text-amber-300 ring-1 ring-amber-500/30'
+                        : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <span>🔒</span>
+                      <span>Private Channel</span>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 mt-1">Logged-in accounts only (No guests)</p>
+                  </button>
+                </div>
+              </div>
+
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={() => setShowCreate(false)}
@@ -197,26 +245,55 @@ function RoomRow({
 }) {
   const isFull = room.memberCount >= room.maxMembers;
   const isOwner = currentUser?.id ? room.ownerId === currentUser.id : (room as any).isOwner;
+  const isGuest = currentUser?.isGuest || false;
+  const isPrivateLockedForGuest = room.isPrivate && isGuest;
+
+  const handleRowClick = () => {
+    if (isAnyJoining || isFull) return;
+    if (isPrivateLockedForGuest) {
+      alert('🔒 This is a Private Room restricted to registered EchoWire members. Please create a free account or sign in to enter private channels.');
+      return;
+    }
+    onJoin(room.id);
+  };
 
   return (
     <div
-      onClick={() => !isFull && !isAnyJoining && onJoin(room.id)}
+      onClick={handleRowClick}
       className={`flex items-center justify-between gap-3 px-3.5 py-3 sm:px-4 sm:py-3.5 rounded-xl bg-zinc-900/50 hover:bg-zinc-900 border ${
         isJoining ? 'border-accent/60 bg-zinc-900/90 shadow-md' : 'border-zinc-800/80 hover:border-zinc-700'
       } transition-all cursor-pointer group shadow-sm active:scale-[0.99]`}
     >
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          {room.isPrivate && <IconLock size={12} className="text-zinc-500 flex-shrink-0" />}
+        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
           <span className="text-zinc-100 text-sm font-semibold truncate">{room.name}</span>
-          {room.description === 'Personal Room' && (
-            <span className="text-[10px] text-accent bg-accent/15 border border-accent/20 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Personal</span>
+          
+          {/* Distinct Badges: Personal vs Private vs Public */}
+          {room.description === 'Personal Room' ? (
+            <span className="text-[10px] text-accent bg-accent/15 border border-accent/20 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 flex-shrink-0">
+              Personal
+            </span>
+          ) : room.isPrivate ? (
+            <span className="text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 flex-shrink-0">
+              <IconLock size={10} />
+              Private
+            </span>
+          ) : (
+            <span className="text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 flex-shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              Public
+            </span>
           )}
+
           {isOwner && room.description !== 'Personal Room' && (
-            <span className="text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Owner</span>
+            <span className="text-[10px] text-zinc-400 bg-zinc-800 border border-zinc-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
+              Owner
+            </span>
           )}
           {isFull && (
-            <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded flex-shrink-0">Full</span>
+            <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded flex-shrink-0">
+              Full
+            </span>
           )}
         </div>
 
@@ -260,27 +337,41 @@ function RoomRow({
           <IconShare size={14} />
         </button>
 
-        {/* Join Room Button - ALWAYS VISIBLE ON BOTH MOBILE AND DESKTOP */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onJoin(room.id);
-          }}
-          disabled={isFull || isAnyJoining}
-          className="flex items-center justify-center gap-1.5 min-w-[70px] text-xs font-semibold px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-accent text-white hover:bg-accent/90 active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed transition-all shadow cursor-pointer"
-        >
-          {isJoining ? (
-            <>
-              <svg className="animate-spin h-3.5 w-3.5 text-white flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-              <span>Joining...</span>
-            </>
-          ) : (
-            'Join'
-          )}
-        </button>
+        {/* Join Room Button - handles Public vs Private guest lock */}
+        {isPrivateLockedForGuest ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              alert('🔒 This is a Private Room restricted to registered EchoWire members. Please create a free account or sign in to enter private channels.');
+            }}
+            className="flex items-center justify-center gap-1.5 min-w-[70px] text-xs font-semibold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 transition-all cursor-pointer"
+            title="Private room - registered members only"
+          >
+            <IconLock size={12} />
+            <span>Members Only</span>
+          </button>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onJoin(room.id);
+            }}
+            disabled={isFull || isAnyJoining}
+            className="flex items-center justify-center gap-1.5 min-w-[70px] text-xs font-semibold px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-accent text-white hover:bg-accent/90 active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-500 disabled:cursor-not-allowed transition-all shadow cursor-pointer"
+          >
+            {isJoining ? (
+              <>
+                <svg className="animate-spin h-3.5 w-3.5 text-white flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span>Joining...</span>
+              </>
+            ) : (
+              'Join'
+            )}
+          </button>
+        )}
       </div>
     </div>
   );

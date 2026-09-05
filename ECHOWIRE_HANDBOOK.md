@@ -406,6 +406,22 @@ Here is how each key feature executes under the hood, step by step:
 
 ---
 
+### Feature 7: Public vs. Private Channels & Guest ID Isolation
+1. **The Human Scenario**: Communities need open public rooms where anyone (including guests joining via a link or guest login) can hop in without friction. At the same time, gaming squads and friends need private channels restricted strictly to registered accounts.
+2. **Channel Archetypes**:
+   * 🌐 **Public Channels**: Open to all users, including guest logins. Marked with a vibrant green `🌐 Public` badge in the room browser. Anyone can join, speak, and chat.
+   * 🔒 **Private Channels**: Restricted exclusively to registered, logged-in members. Marked with an amber `🔒 Private` badge. Guests trying to join are blocked gracefully with an explanatory notice.
+   * 💜 **Personal Rooms**: Permanent auto-generated voice lounges for registered users (`Username's Room`). Never created for temporary guests and never auto-deleted.
+3. **Guest Identification & Scoping**:
+   * **Unique Identifiers**: Every guest is assigned a unique tag based on their generated UUID (e.g., `Guest#g-4A8F`), ensuring no two guests share the same name or tag.
+   * **Role Safeguards**: Guests are barred from creating rooms (`POST /api/rooms` rejects guests with `403 Forbidden`). In the UI, the "+ New room" button is replaced with an unobtrusive `Guest Mode (Public Rooms Only)` indicator.
+4. **Atomic Room Creation & Integrity**:
+   * When a registered user creates a custom room, `POST /api/rooms` atomically enrolls the creator into `room_members` as `'owner'` during creation.
+   * The read-only `GET /api/rooms` endpoint no longer deletes fresh rooms with 0 members. Abandoned room expiration is strictly scoped to non-personal rooms with 0 members that are older than 15 minutes.
+   * This completely prevents foreign key race conditions (`room_members_room_id_fkey`).
+
+---
+
 # CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION
 
 | Decision | Alternative Considered | The Real Reason We Built It This Way |

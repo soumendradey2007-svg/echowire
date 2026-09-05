@@ -440,6 +440,25 @@ Feature 6: Airtight Sign Out & Complete Session Teardown
    and text ("Signing out..." / "Logging out...") while disabling multiple clicks. On resolution,
    the browser resets the URL to "/" and smoothly transitions to the landing page.
 
+Feature 7: Public vs. Private Channels & Guest ID Isolation
+1. Channel Types:
+   - Public Channels (Green "Public" badge): Open to all users, including guest logins.
+     Anyone can join, speak, and chat.
+   - Private Channels (Amber "Private" badge): Restricted exclusively to registered, logged-in
+     members. Guests trying to join are blocked with an explanatory notice.
+   - Personal Rooms (Purple "Personal" badge): Permanent auto-generated voice lounges for
+     registered users. Never created for temporary guests and never auto-deleted.
+2. Guest ID & Role Safeguards:
+   - Unique Identifiers: Every guest receives a unique tag based on their generated UUID
+     (e.g., Guest#g-4A8F), ensuring no two guests share the same name or tag.
+   - Creation Restriction: Guests cannot create rooms (POST /api/rooms rejects guests with 403).
+     In the UI, the "+ New room" button displays "Guest Mode (Public Rooms Only)".
+3. Atomic Room Creation & Integrity:
+   - POST /api/rooms atomically enrolls the creator into room_members as 'owner' upon creation.
+   - GET /api/rooms no longer aggressively deletes empty rooms on read; empty room expiration
+     is reserved for genuinely abandoned channels older than 15 minutes.
+   - This completely eliminates the foreign key constraint violation (room_members_room_id_fkey).
+
 
 ================================================================================
 CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION

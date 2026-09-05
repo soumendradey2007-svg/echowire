@@ -44,22 +44,25 @@ export async function roomRoutes(app: FastifyInstance) {
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
 
       const currentUserId = auth.user.id;
+      const isGuest = auth.user.email ? (auth.user.email.endsWith('@guest.echowire.local') || auth.user.email.startsWith('guest_')) : false;
 
-      // 1. Ensure user has their permanent Personal Room
-      const [existingPersonal] = await db
-        .select()
-        .from(rooms)
-        .where(and(eq(rooms.ownerId, currentUserId), eq(rooms.description, 'Personal Room')))
-        .limit(1);
+      // 1. Ensure registered (non-guest) users have their permanent Personal Room
+      if (!isGuest) {
+        const [existingPersonal] = await db
+          .select()
+          .from(rooms)
+          .where(and(eq(rooms.ownerId, currentUserId), eq(rooms.description, 'Personal Room')))
+          .limit(1);
 
-      if (!existingPersonal) {
-        await db.insert(rooms).values({
-          name: `${auth.user.username}'s Room`,
-          type: 'voice',
-          description: 'Personal Room',
-          ownerId: currentUserId,
-          isPrivate: false,
-        });
+        if (!existingPersonal) {
+          await db.insert(rooms).values({
+            name: `${auth.user.username}'s Room`,
+            type: 'voice',
+            description: 'Personal Room',
+            ownerId: currentUserId,
+            isPrivate: false,
+          });
+        }
       }
 
       // 2. Fetch all rooms and filter visibility
@@ -81,8 +84,9 @@ export async function roomRoutes(app: FastifyInstance) {
         const isCurrentMember = members.some((m) => m.user.id === currentUserId);
         const wasJoined = userJoinedHistory.get(currentUserId)?.has(r.id);
 
-        // Auto-expire: Non-personal empty rooms are removed
-        if (!isPersonal && members.length === 0) {
+        // Auto-expire only genuinely abandoned temporary rooms (older than 15 mins with 0 members)
+        const isAbandoned = !isPersonal && members.length === 0 && (Date.now() - new Date(r.createdAt).getTime() > 15 * 60 * 1000);
+        if (isAbandoned) {
           await db.delete(rooms).where(eq(rooms.id, r.id));
           for (const [, set] of userJoinedHistory.entries()) {
             set.delete(r.id);
@@ -91,10 +95,9 @@ export async function roomRoutes(app: FastifyInstance) {
         }
 
         // Room Visibility Rules:
-        // - Show if user created it (isOwner)
-        // - Show if user is currently inside it (isCurrentMember)
-        // - Show if user joined/was invited and others are still in it (wasJoined && members.length > 0)
-        const isVisible = isOwner || isCurrentMember || (wasJoined && members.length > 0);
+        // - Public rooms are visible to everyone (registered users and guests)
+        // - Personal & Private rooms are visible to owner, active members, or invited members
+        const isVisible = !r.isPrivate || isOwner || isCurrentMember || (wasJoined && members.length > 0);
         if (!isVisible) continue;
 
         result.push({
@@ -111,15 +114,15 @@ export async function roomRoutes(app: FastifyInstance) {
           createdAt: r.createdAt.toISOString(),
           memberCount: members.length,
           members: members.map((m: any) => {
-            const isGuest = m.user.email?.endsWith('@guest.echowire.local') || false;
-            const hex = (m.user.id || '').replace(/[^0-9a-fA-F]/g, '').slice(0, 8);
-            const num = parseInt(hex, 16) || 1234;
-            const tag = isGuest ? 'guest' : String((num % 9000) + 1000);
+            const isGuestMember = m.user.email ? (m.user.email.endsWith('@guest.echowire.local') || m.user.email.startsWith('guest_')) : false;
+            const hex = (m.user.id || '').replace(/[^0-9a-fA-F]/g, '');
+            const num = parseInt(hex.slice(0, 8), 16) || 1234;
+            const tag = isGuestMember ? `g-${hex.slice(0, 4).toUpperCase() || 'GST'}` : String((num % 9000) + 1000);
             const vState = WsGateway.getVoiceState(m.user.id);
             return {
               tag,
               userTag: `${m.user.username}#${tag}`,
-              isGuest,
+              isGuest: isGuestMember,
               id: m.user.id,
               username: m.user.username,
               initials: m.user.username.slice(0, 2).toUpperCase(),
@@ -151,6 +154,12 @@ export async function roomRoutes(app: FastifyInstance) {
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
 
+      // Guests can only join public channels, cannot create rooms
+      const isGuest = auth.user.email ? (auth.user.email.endsWith('@guest.echowire.local') || auth.user.email.startsWith('guest_')) : false;
+      if (isGuest) {
+        return reply.status(403).send({ error: 'Guest accounts cannot create rooms. Please create a free account or sign in to host rooms.' });
+      }
+
       const rl = RateLimiter.check(`room_create:${auth.user.id}`, 5, 60000);
       if (!rl.allowed) {
         return reply.status(429).send({ error: 'Room creation limit reached. You can only create 5 rooms per minute.' });
@@ -171,8 +180,22 @@ export async function roomRoutes(app: FastifyInstance) {
         ownerId: auth.user.id,
       }).returning();
 
+      // Automatically enroll creator as owner member of the new room so it is never empty
+      await db.insert(roomMembers).values({
+        roomId: newRoom.id,
+        userId: auth.user.id,
+        role: 'owner',
+      });
+
+      // Track in user joined history
+      if (!userJoinedHistory.has(auth.user.id)) {
+        userJoinedHistory.set(auth.user.id, new Set());
+      }
+      userJoinedHistory.get(auth.user.id)!.add(newRoom.id);
+
       return { room: newRoom };
     } catch (err: any) {
+      console.error('[ROOM CREATE ERROR]', err);
       return reply.status(500).send({ error: err.message || 'Failed to create room' });
     }
   });
@@ -189,7 +212,7 @@ export async function roomRoutes(app: FastifyInstance) {
       const [room] = await db.select().from(rooms).where(eq(rooms.id, id)).limit(1);
       if (!room) return reply.status(404).send({ error: 'Room not found' });
 
-      const isGuest = auth.user.email?.endsWith('@guest.echowire.local');
+      const isGuest = auth.user.email ? (auth.user.email.endsWith('@guest.echowire.local') || auth.user.email.startsWith('guest_')) : false;
       if (room.isPrivate && isGuest) {
         return reply.status(403).send({ error: 'Private rooms require a registered account. Please sign in to join.' });
       }

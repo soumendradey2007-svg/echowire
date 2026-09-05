@@ -89,6 +89,14 @@ EchoWire is an open-source, lightweight communication platform designed for high
 - **Per-Button Micro-Interactions**: Inline animated SVG spinners and disabled states on room joining (*"Joining..."*), room creation (*"Creating..."*), authentication (*"Signing in..."*, *"Creating account..."*), and friend/invite actions.
 - **Fluid Transitions**: Subtle fade-in animations when switching views for a smooth, app-like feel.
 
+### 🌐 Public vs. Private Channels & Guest Mode
+- **Public Channels (`🌐 Public`)**: Open to all users, including guest visitors. Anyone can browse, join, talk over WebRTC, and participate in text chat.
+- **Private Channels (`🔒 Private`)**: Exclusively reserved for registered, authenticated members. Guests attempting to join are blocked with clear, informative prompts.
+- **Personal Lounges (`💜 Personal`)**: Permanent voice channels for registered users (`Username's Room`) that never expire or auto-delete.
+- **Unique Guest Tagging**: Every guest receives a unique UUID-derived tag (e.g. `Guest#g-4A8F`), preventing tag collision or confusion in rooms.
+- **Guest Creation Lock**: Guest accounts are scoped to join public rooms and prevented from creating rooms.
+- **Atomic Creation & Zero-Race Deletion**: Room creation atomically links the owner to the room, eliminating foreign key race conditions.
+
 ### 👑 Room Moderation & Owner Privileges
 - **Owner-Only Kick**: Room creators can moderate rooms with an exclusive red **Kick** action. Ordinary members cannot access or spoof kick endpoints.
 - **Instant WebRTC Severing**: Kicking a member immediately dispatches `room:kicked`, removes them from `room_members`, and terminates all peer voice connections.

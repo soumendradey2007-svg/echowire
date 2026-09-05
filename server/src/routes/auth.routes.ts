@@ -1,10 +1,11 @@
 
 export function getUserTag(user: { id: string; email?: string | null }): string {
+  const hex = (user.id || '').replace(/[^0-9a-fA-F]/g, '');
   if (user.email && (user.email.endsWith('@guest.echowire.local') || user.email.startsWith('guest_'))) {
-    return 'guest';
+    const guestHex = hex.slice(0, 4).toUpperCase() || 'GST';
+    return `g-${guestHex}`;
   }
-  const hex = (user.id || '').replace(/[^0-9a-fA-F]/g, '').slice(0, 8);
-  const num = parseInt(hex, 16) || 1234;
+  const num = parseInt(hex.slice(0, 8), 16) || 1234;
   return String((num % 9000) + 1000);
 }
 
@@ -61,13 +62,16 @@ export async function authRoutes(app: FastifyInstance) {
 
       reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
 
+      const hex = newUser.id.replace(/[^0-9a-fA-F]/g, '').slice(0, 4).toUpperCase() || guestRand.toUpperCase();
+      const guestTag = `g-${hex}`;
+
       return {
         token: rawToken,
         user: {
           id: newUser.id,
           username: cleanName,
-          tag: 'guest',
-          userTag: `${cleanName}#guest`,
+          tag: guestTag,
+          userTag: `${cleanName}#${guestTag}`,
           isGuest: true,
           email: newUser.email,
           avatarUrl: null,
