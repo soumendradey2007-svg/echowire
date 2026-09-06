@@ -1,4 +1,10 @@
 import { wsClient } from './ws';
+import { RnnoiseWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppressor';
+import rnnoiseWorkletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
+import rnnoiseWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
+import rnnoiseSimdWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
+
+export type NoiseCancellationMode = 'dsp' | 'rnnoise' | 'off';
 
 interface PeerConnection {
   targetUserId: string;
@@ -15,7 +21,16 @@ export class VoiceManager {
   private currentUserId: string | null = null;
   public isMuted: boolean = false;
   public isDeafened: boolean = false;
-  private noiseCancellation: boolean = true;
+  private currentMode: NoiseCancellationMode = (() => {
+    try {
+      const saved = localStorage.getItem('echowire_nc_mode');
+      if (saved === 'dsp' || saved === 'rnnoise' || saved === 'off') {
+        return saved;
+      }
+    } catch (_) {}
+    return 'dsp';
+  })();
+  private onModeChangeCallbacks: Set<(mode: NoiseCancellationMode) => void> = new Set();
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   // Multi-stage Studio DSP Nodes
@@ -23,12 +38,19 @@ export class VoiceManager {
   private highpassFilter2: BiquadFilterNode | null = null;
   private notchFilter50: BiquadFilterNode | null = null;
   private notchFilter60: BiquadFilterNode | null = null;
+  private preFilterBus: BiquadFilterNode | null = null;
   private voicePresenceEq: BiquadFilterNode | null = null;
   private highShelfBirdFilter: BiquadFilterNode | null = null;
   private lowpassFilter1: BiquadFilterNode | null = null;
   private lowpassFilter2: BiquadFilterNode | null = null;
   private limiterNode: DynamicsCompressorNode | null = null;
   private gateGainNode: GainNode | null = null;
+  private dspOutGainNode: GainNode | null = null;
+  // RNNoise AI Neural Nodes
+  private rnnoiseNode: RnnoiseWorkletNode | null = null;
+  private isRnnoiseLoading: boolean = false;
+  private rnnoiseGainNode: GainNode | null = null;
+  // Destination and Bypass
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private bypassGainNode: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
@@ -215,32 +237,57 @@ export class VoiceManager {
 
       // 7. Precision Psychoacoustic Expander / Noise Gate Node
       this.gateGainNode = this.audioContext.createGain();
-      this.gateGainNode.gain.setValueAtTime(this.noiseCancellation ? 0.0 : 1.0, now);
+      this.gateGainNode.gain.setValueAtTime(this.currentMode === 'dsp' ? 0.0 : 1.0, now);
+
+      // Studio DSP Output Gain Node
+      this.dspOutGainNode = this.audioContext.createGain();
+      this.dspOutGainNode.gain.setValueAtTime(this.currentMode === 'dsp' ? 1.0 : 0.0, now);
+
+      // RNNoise AI Neural Output Gain Node
+      this.rnnoiseGainNode = this.audioContext.createGain();
+      this.rnnoiseGainNode.gain.setValueAtTime(this.currentMode === 'rnnoise' ? 1.0 : 0.0, now);
 
       // 8. WebRTC Destination
       this.destinationNode = this.audioContext.createMediaStreamDestination();
 
       // Bypass path (when NC is disabled)
       this.bypassGainNode = this.audioContext.createGain();
-      this.bypassGainNode.gain.setValueAtTime(this.noiseCancellation ? 0.0 : 1.0, now);
+      this.bypassGainNode.gain.setValueAtTime(this.currentMode === 'off' ? 1.0 : 0.0, now);
 
-      // Connect Processed Signal Chain:
-      // source -> hp1 -> hp2 -> notch50 -> notch60 -> voicePresenceEq -> highShelfBirdFilter -> lp1 -> lp2 -> limiter -> gateGain -> destination
+      // Connect Shared Pre-Filter Chain (cleans sub-bass rumble & electrical hum for both DSP and RNNoise):
+      // source -> hp1 -> hp2 -> notch50 -> notch60
       this.sourceNode.connect(this.highpassFilter1);
       this.highpassFilter1.connect(this.highpassFilter2);
       this.highpassFilter2.connect(this.notchFilter50);
       this.notchFilter50.connect(this.notchFilter60);
-      this.notchFilter60.connect(this.voicePresenceEq);
+      this.preFilterBus = this.notchFilter60;
+
+      // Connect Branch 1: Studio DSP Chain
+      // preFilterBus -> voicePresenceEq -> highShelfBirdFilter -> lp1 -> lp2 -> limiter -> gateGain -> dspOutGain -> destination
+      this.preFilterBus.connect(this.voicePresenceEq);
       this.voicePresenceEq.connect(this.highShelfBirdFilter);
       this.highShelfBirdFilter.connect(this.lowpassFilter1);
       this.lowpassFilter1.connect(this.lowpassFilter2);
       this.lowpassFilter2.connect(this.limiterNode);
       this.limiterNode.connect(this.gateGainNode);
-      this.gateGainNode.connect(this.destinationNode);
+      this.gateGainNode.connect(this.dspOutGainNode);
+      this.dspOutGainNode.connect(this.destinationNode);
 
-      // Connect Bypass Signal Chain:
+      // Connect Branch 2: RNNoise Output to Destination (worklet connected dynamically)
+      this.rnnoiseGainNode.connect(this.destinationNode);
+
+      // Connect Branch 3: Direct Bypass to Destination
       this.sourceNode.connect(this.bypassGainNode);
       this.bypassGainNode.connect(this.destinationNode);
+
+      this.updateRoutingGains(false);
+
+      if (this.currentMode === 'rnnoise') {
+        this.ensureRnnoiseNode().catch((err) => {
+          console.warn('[VOICE] RNNoise init fallback to Studio DSP:', err);
+          this.setNoiseCancellationMode('dsp');
+        });
+      }
 
       // 9. High-Resolution Spectral Analyser for Voice Activity & Noise Discrimination
       this.analyser = this.audioContext.createAnalyser();
@@ -358,11 +405,24 @@ export class VoiceManager {
 
       const isVoiceActive = isSpeech || (now - lastSpokenTime < HOLD_TIME_MS);
 
-      // 7. Smooth Downward Expander (10ms attack, 50ms smooth release)
-      if (this.gateGainNode && this.noiseCancellation) {
-        const targetGain = isVoiceActive && !this.isMuted && !this.isDeafened ? 1.0 : 0.0;
-        const timeConstant = targetGain > 0.5 ? 0.010 : 0.050;
-        this.gateGainNode.gain.setTargetAtTime(
+      // 7. Smooth Downward Expander & Gate
+      const targetGain = isVoiceActive && !this.isMuted && !this.isDeafened ? 1.0 : 0.0;
+      const timeConstant = targetGain > 0.5 ? 0.010 : 0.050;
+
+      if (this.gateGainNode && this.audioContext) {
+        if (this.currentMode === 'dsp') {
+          this.gateGainNode.gain.setTargetAtTime(
+            targetGain,
+            this.audioContext.currentTime,
+            timeConstant
+          );
+        } else {
+          this.gateGainNode.gain.setValueAtTime(1.0, this.audioContext.currentTime);
+        }
+      }
+
+      if (this.rnnoiseGainNode && this.audioContext && this.currentMode === 'rnnoise') {
+        this.rnnoiseGainNode.gain.setTargetAtTime(
           targetGain,
           this.audioContext.currentTime,
           timeConstant
@@ -501,22 +561,99 @@ export class VoiceManager {
     }
   }
 
+  private async ensureRnnoiseNode(): Promise<boolean> {
+    if (this.rnnoiseNode) return true;
+    if (!this.audioContext || !this.preFilterBus || !this.rnnoiseGainNode) return false;
+    if (this.isRnnoiseLoading) return false;
+    this.isRnnoiseLoading = true;
+    try {
+      await this.audioContext.audioWorklet.addModule(rnnoiseWorkletUrl);
+      const wasmBinary = await loadRnnoise({
+        url: rnnoiseWasmUrl,
+        simdUrl: rnnoiseSimdWasmUrl,
+      });
+      if (!this.audioContext || !this.preFilterBus || !this.rnnoiseGainNode) return false;
+
+      this.rnnoiseNode = new RnnoiseWorkletNode(this.audioContext, {
+        maxChannels: 1,
+        wasmBinary,
+      });
+
+      this.preFilterBus.connect(this.rnnoiseNode);
+      this.rnnoiseNode.connect(this.rnnoiseGainNode);
+      return true;
+    } catch (err) {
+      console.error('[VOICE] Failed to initialize RNNoise WASM:', err);
+      return false;
+    } finally {
+      this.isRnnoiseLoading = false;
+    }
+  }
+
+  private updateRoutingGains(smooth: boolean = true) {
+    if (!this.audioContext) return;
+    const now = this.audioContext.currentTime;
+    const timeConst = smooth ? 0.025 : 0.001;
+
+    const isDsp = this.currentMode === 'dsp';
+    const isRnnoise = this.currentMode === 'rnnoise';
+    const isOff = this.currentMode === 'off';
+
+    if (this.dspOutGainNode) {
+      this.dspOutGainNode.gain.setTargetAtTime(isDsp ? 1.0 : 0.0, now, timeConst);
+    }
+    if (this.rnnoiseGainNode) {
+      this.rnnoiseGainNode.gain.setTargetAtTime(isRnnoise ? 1.0 : 0.0, now, timeConst);
+    }
+    if (this.bypassGainNode) {
+      this.bypassGainNode.gain.setTargetAtTime(isOff ? 1.0 : 0.0, now, timeConst);
+    }
+  }
+
   getNoiseCancellation(): boolean {
-    return this.noiseCancellation;
+    return this.currentMode !== 'off';
   }
 
   setNoiseCancellation(enabled: boolean): boolean {
-    this.noiseCancellation = enabled;
-    if (this.audioContext && this.bypassGainNode && this.gateGainNode) {
-      const now = this.audioContext.currentTime;
-      if (enabled) {
-        this.bypassGainNode.gain.setTargetAtTime(0.0, now, 0.02);
-      } else {
-        this.bypassGainNode.gain.setTargetAtTime(1.0, now, 0.02);
-        this.gateGainNode.gain.setTargetAtTime(1.0, now, 0.02);
+    const nextMode: NoiseCancellationMode = enabled
+      ? (this.currentMode === 'off' ? 'dsp' : this.currentMode)
+      : 'off';
+    this.setNoiseCancellationMode(nextMode);
+    return enabled;
+  }
+
+  getNoiseCancellationMode(): NoiseCancellationMode {
+    return this.currentMode;
+  }
+
+  async setNoiseCancellationMode(mode: NoiseCancellationMode): Promise<NoiseCancellationMode> {
+    if (mode === 'rnnoise') {
+      const ok = await this.ensureRnnoiseNode();
+      if (!ok) {
+        console.warn('[VOICE] Could not load RNNoise WASM, falling back to Studio DSP');
+        mode = 'dsp';
       }
     }
-    return this.noiseCancellation;
+
+    this.currentMode = mode;
+    try {
+      localStorage.setItem('echowire_nc_mode', mode);
+    } catch (_) {}
+
+    this.updateRoutingGains(true);
+
+    for (const cb of this.onModeChangeCallbacks) {
+      try {
+        cb(this.currentMode);
+      } catch (_) {}
+    }
+
+    return this.currentMode;
+  }
+
+  onNoiseCancellationModeChange(callback: (mode: NoiseCancellationMode) => void): () => void {
+    this.onModeChangeCallbacks.add(callback);
+    return () => this.onModeChangeCallbacks.delete(callback);
   }
 
   setMuted(muted: boolean) {
@@ -524,8 +661,9 @@ export class VoiceManager {
       return;
     }
     this.isMuted = muted;
-    if (this.audioContext && this.gateGainNode && muted) {
-      this.gateGainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+    if (this.audioContext && muted) {
+      if (this.gateGainNode) this.gateGainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+      if (this.rnnoiseGainNode) this.rnnoiseGainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
     }
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((t) => {
@@ -544,8 +682,9 @@ export class VoiceManager {
     if (deafened) {
       this.isMuted = true;
     }
-    if (this.audioContext && this.gateGainNode && deafened) {
-      this.gateGainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+    if (this.audioContext && deafened) {
+      if (this.gateGainNode) this.gateGainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+      if (this.rnnoiseGainNode) this.rnnoiseGainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
     }
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((t) => {
@@ -618,17 +757,27 @@ export class VoiceManager {
       this.audioContext.close().catch(() => {});
       this.audioContext = null;
     }
+    if (this.rnnoiseNode) {
+      try {
+        this.rnnoiseNode.destroy();
+      } catch (_) {}
+      this.rnnoiseNode = null;
+    }
+    this.isRnnoiseLoading = false;
     this.sourceNode = null;
     this.highpassFilter1 = null;
     this.highpassFilter2 = null;
     this.notchFilter50 = null;
     this.notchFilter60 = null;
+    this.preFilterBus = null;
     this.voicePresenceEq = null;
     this.highShelfBirdFilter = null;
     this.lowpassFilter1 = null;
     this.lowpassFilter2 = null;
     this.limiterNode = null;
     this.gateGainNode = null;
+    this.dspOutGainNode = null;
+    this.rnnoiseGainNode = null;
     this.destinationNode = null;
     this.bypassGainNode = null;
     this.analyser = null;

@@ -365,9 +365,10 @@ Here is how each key feature executes under the hood, step by step:
 
 ---
 
-### Feature 3: Discord-Grade Voice Isolation & Studio Audio DSP
-1. **Hardware AGC Disarming**: Hardware and operating system `autoGainControl` is explicitly set to `false`. This prevents the microphone driver from auto-boosting distant chatter, birds outside the window, or computer fan whoosh when the speaker is quiet.
-2. **The Multi-Stage Studio DSP Chain**: When you speak, your microphone audio passes through a cascaded Web Audio processing chain:
+### Feature 3: Dual-Engine Voice Isolation (Studio DSP + AI RNNoise) & Open Toolbar Switcher
+1. **Open, 1-Click Engine Selector in Room Toolbar**: Rather than burying audio settings inside deep menus, an interactive noise cancellation control sits prominently on the active voice room toolbar. Users can switch between **Studio Isolation**, **AI Neural (RNNoise)**, and **Disabled (Raw)** with a single click during a live call without dropping the connection.
+2. **Hardware AGC Disarming**: Hardware and operating system `autoGainControl` is explicitly set to `false`. This prevents the microphone driver from auto-boosting distant chatter, birds outside the window, or computer fan whoosh when the speaker is quiet.
+3. **The Studio DSP Chain**:
    * **Dual Highpass Filters (125Hz, 24 dB/octave Butterworth)**: Completely removes 50/60Hz AC hum, desk knocks, and PC fan vibrations (<120Hz) while keeping vocal fundamentals warm.
    * **Dual Mains Power Hum Notches (50Hz & 60Hz, Q = 6.0)**: Surgical international electrical hum rejection.
    * **Vocal Presence Peaking EQ (2.2kHz, +2.0 dB, Q = 1.1)**: Enhances speech articulation, vowel formants, and clarity.
@@ -375,12 +376,16 @@ Here is how each key feature executes under the hood, step by step:
    * **Dual Cascading Steep Lowpass Filters (4.0kHz & 4.2kHz, 24 dB/octave)**: Brickwalls high-frequency screech, bird chirps, and crickets (>35 to 50 dB attenuation).
    * **Transparent Peak Safety Limiter (ZERO Makeup Gain)**: Unlike aggressive compressors that amplify background noise by +14 dB, this limiter operates at -3 dB with 0 dB makeup gain, ensuring ambient room sounds are never boosted.
    * **Smooth Downward Expander**: Smoothly ramps audio in 10ms and releases in 50ms, eliminating sudden clicks or background noise surges.
-3. **Multi-Band Speech vs. Background Distinguisher (VAD)**: An `AnalyserNode` calculates audio spectrum 60 times per second:
+4. **The AI Neural Suppression Chain (RNNoise WebAssembly)**:
+   * Compiles the Xiph.Org RNNoise recurrent neural network (RNN / GRU) into WebAssembly running in a dedicated `AudioWorkletNode`.
+   * Specifically trained to identify and scrub out mechanical keyboard clatter, barking dogs, loud cafes, and background speech.
+   * Pre-filtered by our cascaded 125 Hz high-pass filter and 50/60 Hz notches, cleaning sub-bass rumble before audio enters the neural network for maximum AI accuracy.
+5. **Multi-Band Speech vs. Background Distinguisher (VAD)**: An `AnalyserNode` calculates audio spectrum 60 times per second:
    * **Near-Field Vocal Fundamental (140Hz–330Hz)** & **Vocal Formants (350Hz–2400Hz)** are required to trigger voice activity.
    * **Bird Chirp Rejection**: Audio with dominant high-frequency energy (>3.5kHz) and absent low fundamental pitch is strictly rejected.
    * **Far-Field Rejection**: Distant people talking (2–5m away) do not cross the adaptive near-field speech threshold.
-4. **The Visualizer & Broadcast**: When voice activity is confirmed, your browser sends `{ isSpeaking: true }` over WebSocket.
-5. **The Result**: An emerald green pulse ring illuminates your avatar on everyone's screen in real time, with only the clean voice of the person speaking going through.
+6. **The Visualizer & Broadcast**: When voice activity is confirmed, your browser sends `{ isSpeaking: true }` over WebSocket.
+7. **The Result**: An emerald green pulse ring illuminates your avatar on everyone's screen in real time, with only the clean voice of the person speaking going through.
 
 ---
 

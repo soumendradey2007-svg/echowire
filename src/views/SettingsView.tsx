@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { IconUser, IconHeadphones, IconBell, IconShield, IconEye, IconTrash, IconLogOut, IconChevronDown } from '../components/Icons'
 import { apiFetch } from '../lib/api'
-import { voiceManager } from '../lib/voice'
+import { voiceManager, type NoiseCancellationMode } from '../lib/voice'
 
 interface Props {
   currentUser?: any
@@ -229,17 +229,27 @@ function AccountSection({ currentUser, onLogout, onProfileUpdate }: { currentUse
 function VoiceSection() {
   const [inputDevice, setInputDevice] = useState('default')
   const [outputDevice, setOutputDevice] = useState('default')
-  const [noiseSuppression, setNoiseSuppression] = useState(() => voiceManager.getNoiseCancellation())
+  const [ncMode, setNcMode] = useState<NoiseCancellationMode>(() => voiceManager.getNoiseCancellationMode())
   const [echoCancellation, setEchoCancellation] = useState(true)
+
+  useEffect(() => {
+    return voiceManager.onNoiseCancellationModeChange((m) => setNcMode(m))
+  }, [])
 
   const deviceOptions = [
     { value: 'default', label: 'System default' },
     { value: 'mic1', label: 'Default Microphone' },
   ]
 
-  const handleToggleNC = (enabled: boolean) => {
-    setNoiseSuppression(enabled)
-    voiceManager.setNoiseCancellation(enabled)
+  const ncOptions = [
+    { value: 'dsp', label: '🎙️ Studio Isolation (Zero Latency & Bird Ducking)' },
+    { value: 'rnnoise', label: '🧠 AI Neural Suppression (RNNoise Deep Learning)' },
+    { value: 'off', label: '⭕ Disabled (Raw Microphone Input)' },
+  ]
+
+  const handleNcModeChange = async (val: string) => {
+    await voiceManager.setNoiseCancellationMode(val as NoiseCancellationMode)
+    setNcMode(voiceManager.getNoiseCancellationMode())
   }
 
   return (
@@ -251,8 +261,8 @@ function VoiceSection() {
       <SettingRow label="Output device">
         <Select value={outputDevice} onChange={setOutputDevice} options={deviceOptions} />
       </SettingRow>
-      <SettingRow label="Advanced Noise Suppression" description="Discord-style studio isolation: bird chirp ducking, background chatter rejection, 50/60Hz AC hum notch & zero-boost voice gating">
-        <Toggle checked={noiseSuppression} onChange={handleToggleNC} />
+      <SettingRow label="Noise Cancellation Engine" description="Choose between in-house zero-latency Studio DSP or deep-learning RNNoise AI">
+        <Select value={ncMode} onChange={handleNcModeChange} options={ncOptions} />
       </SettingRow>
       <SettingRow label="Echo cancellation" description="Prevent audio feedback & acoustic bleed">
         <Toggle checked={echoCancellation} onChange={setEchoCancellation} />

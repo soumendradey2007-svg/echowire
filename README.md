@@ -70,16 +70,15 @@ EchoWire is an open-source, lightweight communication platform designed for high
 
 ## Key Features
 
-### 🎙️ Discord-Grade Voice Isolation & Studio DSP Architecture
+### 🎙️ Dual-Engine Voice Isolation & AI Noise Suppression (Studio DSP + AI RNNoise)
+- **Open, 1-Click Engine Selector in Room Toolbar**: Directly on the active voice room toolbar, an interactive selector lets users toggle between **Studio Isolation**, **AI Neural (RNNoise)**, and **Raw Off** in real time during a call without disconnecting.
+- **Dual-Engine Architecture**:
+  - 🎙️ **Studio Isolation (In-House DSP)**: Zero latency (< 1ms), 0 KB download, natural vocal tone. Employs dual cascaded 125 Hz Butterworth high-pass filters, 50/60 Hz powerline hum notches, 2.2 kHz presence EQ, 3.4 kHz continuous bird chirp ducking (-14 dB), steep dual 4 kHz low-pass filters, a 0 dB makeup peak limiter, and near-field spectral VAD.
+  - 🧠 **AI Neural Suppression (RNNoise WebAssembly)**: Deep-learning recurrent neural network running inside an `AudioWorkletNode` via WebAssembly. Specifically cleans out mechanical keyboard clicks, barking dogs, loud cafes, and background chatter. Pre-filtered by our 125 Hz highpass and 50/60 Hz notches for maximum AI accuracy.
+  - ⭕ **Disabled (Raw Microphone)**: Pure uncompressed pass-through for studio condenser microphones or instruments.
 - **Hardware AGC Disarmed (`autoGainControl: false`)**: Disables browser and operating system automatic gain boost, preventing microphone sensitivity from aggressively boosting ambient room noise, bird chirps outside the window, and distant background chatter.
-- **Dual Cascaded 24 dB/octave Butterworth High-Pass Filters (125 Hz)**: Completely eliminates low-end table vibrations, keyboard thumps, AC rumble, and 50/60 Hz electrical hum harmonics while preserving warm vocal fundamentals.
-- **Dual Powerline Hum Notch Filters (50 Hz & 60 Hz, Q = 6.0)**: Surgical international electrical ground loop rejection.
-- **Parametric Vocal Presence Peaking Filter (2.2 kHz, +2.0 dB, Q = 1.1)**: Accentuates speech intelligibility, formant definition, and consonant articulation.
-- **Continuous Bird Chirp Ducking (High-Shelf @ 3400 Hz, -14 dB)**: Continuously ducks the 3.5 kHz – 7.5 kHz acoustic band where bird chirps, whistles, and hiss reside.
-- **Dual Cascading Steep Low-Pass Filters (4000 Hz / 4200 Hz, 24 dB/octave)**: Brickwalls bird calls, cricket sounds, fan whine, and high screech (>35 dB to 50 dB attenuation).
-- **Transparent Peak Safety Limiter (ZERO Makeup Gain)**: Replaced low-threshold compression (-28 dB) that caused +14 dB makeup gain bursts when the gate opened. The new transparent peak limiter operates at -3 dB with 0 dB makeup gain, guaranteeing background noise is never boosted.
-- **Multi-Band Speech vs. Background Distinguisher (VAD)**: Accurately isolates near-field human speech (140–330 Hz pitch fundamental + 350–2400 Hz vocal formants). Strictly rejects bird chirps (high-frequency dominance with near-zero low pitch) and far-field background talkers (diffuse, low amplitude).
 - **Smooth Downward Expander & 220ms Speech Hangover**: Smoothly ramps audio with a 10ms attack and 50ms release. Preserves natural word endings without sudden noise bursts or chattering.
+- **Settings & Room Toolbar Synchronization**: Audio mode choices persist in `localStorage` (`echowire_nc_mode`) and stay 100% in sync across the voice room toolbar and user settings.
 - **Zero Media Costs ($0 Bills)**: Direct WebRTC P2P mesh completely bypasses centralized media servers.
 
 ### ⚡ Instant Visual Feedback & Top Progress Bar

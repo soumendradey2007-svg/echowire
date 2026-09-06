@@ -1,5 +1,5 @@
-import { voiceManager } from '../lib/voice';
-import React, { useState, useEffect } from 'react';
+import { voiceManager, type NoiseCancellationMode } from '../lib/voice';
+import React, { useState, useEffect, useRef } from 'react';
 import type { Room, RightTab, Friend } from '../types';
 import {
   IconMessageSquare,
@@ -55,12 +55,31 @@ export default function VoiceRoomView({
     setTimeout(() => setCopiedRoomLink(false), 2500);
   };
 
-  const [noiseCancellation, setNoiseCancellation] = useState(() => voiceManager.getNoiseCancellation());
+  const [ncMode, setNcMode] = useState<NoiseCancellationMode>(() => voiceManager.getNoiseCancellationMode());
+  const [showNcMenu, setShowNcMenu] = useState(false);
+  const ncMenuRef = useRef<HTMLDivElement>(null);
 
-  const handleToggleNoiseCancellation = () => {
-    const next = !noiseCancellation;
-    setNoiseCancellation(next);
-    voiceManager.setNoiseCancellation(next);
+  useEffect(() => {
+    return voiceManager.onNoiseCancellationModeChange((newMode) => {
+      setNcMode(newMode);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!showNcMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ncMenuRef.current && !ncMenuRef.current.contains(e.target as Node)) {
+        setShowNcMenu(false);
+      }
+    };
+    window.addEventListener('mousedown', handleClickOutside);
+    return () => window.removeEventListener('mousedown', handleClickOutside);
+  }, [showNcMenu]);
+
+  const handleSelectNcMode = async (mode: NoiseCancellationMode) => {
+    setShowNcMenu(false);
+    await voiceManager.setNoiseCancellationMode(mode);
+    setNcMode(voiceManager.getNoiseCancellationMode());
   };
 
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
@@ -191,14 +210,132 @@ export default function VoiceRoomView({
 
         {/* Clean, Non-Stacking Single-Row Toolbar */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap flex-shrink-0">
-          {/* Noise Cancellation: Pure blue wave icon with hover tooltip */}
-          <button
-            onClick={handleToggleNoiseCancellation}
-            className={`p-1.5 transition-colors cursor-pointer active:scale-95 flex-shrink-0 ${noiseCancellation ? 'text-blue-400 hover:text-blue-300' : 'text-zinc-500 hover:text-zinc-300'}`}
-            title={noiseCancellation ? "Noise Cancellation: ON" : "Noise Cancellation: OFF"}
-          >
-            <IconWave size={18} />
-          </button>
+          {/* Noise Cancellation & Engine Selector (Open & Accessible in Room Toolbar) */}
+          <div className="relative flex-shrink-0" ref={ncMenuRef}>
+            <div className="flex items-center rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-colors p-0.5">
+              {/* Quick toggle icon: toggles between active and off */}
+              <button
+                onClick={() => {
+                  const next = ncMode === 'off' ? 'dsp' : 'off';
+                  handleSelectNcMode(next);
+                }}
+                className={`p-1.5 rounded-md transition-colors cursor-pointer active:scale-95 ${
+                  ncMode === 'dsp'
+                    ? 'text-blue-400 hover:text-blue-300'
+                    : ncMode === 'rnnoise'
+                    ? 'text-purple-400 hover:text-purple-300'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+                title={
+                  ncMode === 'dsp'
+                    ? 'Noise Cancellation: Studio DSP (Click to turn off)'
+                    : ncMode === 'rnnoise'
+                    ? 'Noise Cancellation: AI RNNoise (Click to turn off)'
+                    : 'Noise Cancellation: OFF (Click to turn on)'
+                }
+              >
+                <IconWave size={17} />
+              </button>
+
+              {/* Mode Badge & Dropdown Trigger */}
+              <button
+                onClick={() => setShowNcMenu(!showNcMenu)}
+                className={`flex items-center gap-1 px-1.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer select-none ${
+                  ncMode === 'dsp'
+                    ? 'text-blue-300 bg-blue-500/15 hover:bg-blue-500/25'
+                    : ncMode === 'rnnoise'
+                    ? 'text-purple-300 bg-purple-500/15 hover:bg-purple-500/25'
+                    : 'text-zinc-400 hover:text-zinc-300 hover:bg-zinc-800'
+                }`}
+                title="Switch Noise Cancellation Engine"
+              >
+                <span className="hidden xs:inline sm:inline">
+                  {ncMode === 'dsp' ? 'Studio' : ncMode === 'rnnoise' ? 'AI Neural' : 'Off'}
+                </span>
+                <span className="xs:hidden sm:hidden">
+                  {ncMode === 'dsp' ? 'DSP' : ncMode === 'rnnoise' ? 'AI' : 'Off'}
+                </span>
+                <svg
+                  className={`w-3 h-3 transition-transform ${showNcMenu ? 'rotate-180' : ''}`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Quick Engine Dropdown Popover */}
+            {showNcMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-64 p-1.5 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-2 py-1.5 border-b border-zinc-800/80 mb-1">
+                  <p className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wider">Noise Cancellation Engine</p>
+                  <p className="text-[10px] text-zinc-500">Switch algorithm directly in call</p>
+                </div>
+
+                {/* Option 1: Studio DSP */}
+                <button
+                  onClick={() => handleSelectNcMode('dsp')}
+                  className={`w-full flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors cursor-pointer ${
+                    ncMode === 'dsp' ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30' : 'hover:bg-zinc-800 text-zinc-300'
+                  }`}
+                >
+                  <span className="text-base leading-none mt-0.5">🎙️</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold">Studio Isolation</span>
+                      {ncMode === 'dsp' && <span className="text-blue-400 text-xs font-bold">✓</span>}
+                    </div>
+                    <p className="text-[10px] text-zinc-400 mt-0.5 leading-snug">
+                      Zero latency (&lt;1ms), natural tone, bird chirp ducking & AC hum notch.
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 2: AI RNNoise */}
+                <button
+                  onClick={() => handleSelectNcMode('rnnoise')}
+                  className={`w-full flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors cursor-pointer mt-1 ${
+                    ncMode === 'rnnoise' ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30' : 'hover:bg-zinc-800 text-zinc-300'
+                  }`}
+                >
+                  <span className="text-base leading-none mt-0.5">🧠</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold">AI Neural (RNNoise)</span>
+                      {ncMode === 'rnnoise' && <span className="text-purple-400 text-xs font-bold">✓</span>}
+                    </div>
+                    <p className="text-[10px] text-zinc-400 mt-0.5 leading-snug">
+                      Deep-learning WASM AI. Scrubs out mechanical typing, barking dogs & chatter.
+                    </p>
+                  </div>
+                </button>
+
+                {/* Option 3: Off */}
+                <button
+                  onClick={() => handleSelectNcMode('off')}
+                  className={`w-full flex items-start gap-2.5 p-2 rounded-lg text-left transition-colors cursor-pointer mt-1 ${
+                    ncMode === 'off' ? 'bg-zinc-800/80 text-zinc-200 border border-zinc-700' : 'hover:bg-zinc-800 text-zinc-400'
+                  }`}
+                >
+                  <span className="text-base leading-none mt-0.5">⭕</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold">Disabled (Raw Mic)</span>
+                      {ncMode === 'off' && <span className="text-zinc-400 text-xs font-bold">✓</span>}
+                    </div>
+                    <p className="text-[10px] text-zinc-500 mt-0.5 leading-snug">
+                      Direct raw pass-through without acoustic processing.
+                    </p>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Share Room */}
           <button

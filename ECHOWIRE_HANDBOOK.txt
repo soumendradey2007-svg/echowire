@@ -379,21 +379,29 @@ Feature 2: 10-Second Bottom-Right Notification Popups
 6. User B can click "View Requests" to accept, click "X" to dismiss, or let it
    auto-dismiss after 10 seconds.
 
-Feature 3: Discord-Grade Voice Isolation & Studio Audio DSP
-1. Hardware AGC Disarming: Hardware and operating system autoGainControl is explicitly set to false, preventing the microphone from auto-boosting distant chatter, bird chirping, or fan noise when the speaker is quiet.
-2. When you speak, audio runs through a cascaded Web Audio processing chain:
-   - Dual Highpass (125Hz, 24 dB/octave): Completely removes AC hum, desk bumps, and fan noise (<120Hz).
-   - Dual Notches (50Hz & 60Hz): Surgical international powerline hum rejection.
+Feature 3: Dual-Engine Voice Isolation (Studio DSP + AI RNNoise) & Open Toolbar Switcher
+1. Open, 1-Click Engine Selector in Room Toolbar:
+   - Rather than burying audio settings inside deep menus, an interactive noise cancellation control sits prominently on the active voice room toolbar.
+   - Users can toggle noise suppression or switch between Studio Isolation, AI Neural (RNNoise), and Disabled (Raw) with a single click during a live call without dropping the connection.
+2. Hardware AGC Disarming:
+   - Hardware and operating system autoGainControl is explicitly set to false, preventing the microphone from auto-boosting distant chatter, bird chirping, or fan noise when the speaker is quiet.
+3. The Studio DSP Chain:
+   - Dual Highpass (125Hz, 24 dB/octave Butterworth): Completely removes AC hum, desk bumps, and fan noise (<120Hz).
+   - Dual Notches (50Hz & 60Hz, Q = 6.0): Surgical international powerline hum rejection.
    - Vocal Presence EQ (2.2kHz, +2.0 dB): Accentuates speech intelligibility, vowel formants, and consonants.
    - Continuous Bird Chirp Attenuator (High Shelf @ 3.4kHz, -14 dB): Ducks the 3.5kHz–7.5kHz bird song frequency zone.
    - Dual Steep Lowpass (4.0kHz & 4.2kHz, 24 dB/octave): Brickwalls bird chirps, cricket noises, and high hiss.
    - Transparent Peak Safety Limiter (ZERO Makeup Gain): Operates at -3 dB with 0 dB makeup gain. Never amplifies quiet background noise!
    - Smooth Downward Expander: Smoothly ramps audio in 10ms and releases in 50ms, eliminating background noise surges.
-3. Multi-Band Voice Activity Detector (VAD):
+4. The AI Neural Suppression Chain (RNNoise WebAssembly):
+   - Compiles the Xiph.Org RNNoise recurrent neural network (RNN / GRU) into WebAssembly running in a dedicated AudioWorkletNode.
+   - Specifically trained to identify and scrub out mechanical keyboard clatter, barking dogs, loud cafes, and background chatter.
+   - Pre-filtered by our cascaded 125 Hz high-pass filter and 50/60 Hz notches, cleaning sub-bass rumble before audio enters the neural network for maximum AI accuracy.
+5. Multi-Band Voice Activity Detector (VAD):
    - Near-field pitch fundamental (140Hz–330Hz) and formant core (350Hz–2400Hz) are required to trigger voice activity.
    - Bird chirps (high frequency energy with near-zero low pitch fundamental) are strictly rejected.
    - Far-field background talkers (2–5m away) do not cross the adaptive near-field speech threshold.
-4. When voice activity is confirmed:
+6. When voice activity is confirmed:
    - Your avatar glows with an emerald ring.
    - Server broadcasts { type: 'voice:state_change', isSpeaking: true }.
    - All peers see your avatar glowing simultaneously, with only the clean voice of the person speaking going through!
