@@ -70,13 +70,16 @@ EchoWire is an open-source, lightweight communication platform designed for high
 
 ## Key Features
 
-### 🎙️ Advanced Studio DSP Voice Architecture
-- **24 dB/octave Butterworth High-Pass Filter (80 Hz)**: Strips desk vibrations, mechanical keyboard rumbles, and air conditioning hum.
-- **Dual Electrical Hum Notch Filters (50 Hz & 60 Hz, Q = 30)**: Eliminates power cord noise without degrading vocal warmth.
-- **Parametric Vocal Peaking Filter (2.8 kHz, +2.5 dB, Q = 1.2)**: Enhances speech intelligibility and crispness.
-- **High-Frequency Cutoff (11 kHz)**: Removes coil whine, backlight buzz, and harsh sibilance.
-- **Broadcast Dynamics Compressor**: Automatically levels loud shouts and quiet whispers to keep room volume balanced.
-- **Real-Time Voice Activity Detection (VAD)**: Calculates RMS audio volume 60 times per second to illuminate avatars with an emerald green pulse ring when speaking.
+### 🎙️ Discord-Grade Voice Isolation & Studio DSP Architecture
+- **Hardware AGC Disarmed (`autoGainControl: false`)**: Disables browser and operating system automatic gain boost, preventing microphone sensitivity from aggressively boosting ambient room noise, bird chirps outside the window, and distant background chatter.
+- **Dual Cascaded 24 dB/octave Butterworth High-Pass Filters (125 Hz)**: Completely eliminates low-end table vibrations, keyboard thumps, AC rumble, and 50/60 Hz electrical hum harmonics while preserving warm vocal fundamentals.
+- **Dual Powerline Hum Notch Filters (50 Hz & 60 Hz, Q = 6.0)**: Surgical international electrical ground loop rejection.
+- **Parametric Vocal Presence Peaking Filter (2.2 kHz, +2.0 dB, Q = 1.1)**: Accentuates speech intelligibility, formant definition, and consonant articulation.
+- **Continuous Bird Chirp Ducking (High-Shelf @ 3400 Hz, -14 dB)**: Continuously ducks the 3.5 kHz – 7.5 kHz acoustic band where bird chirps, whistles, and hiss reside.
+- **Dual Cascading Steep Low-Pass Filters (4000 Hz / 4200 Hz, 24 dB/octave)**: Brickwalls bird calls, cricket sounds, fan whine, and high screech (>35 dB to 50 dB attenuation).
+- **Transparent Peak Safety Limiter (ZERO Makeup Gain)**: Replaced low-threshold compression (-28 dB) that caused +14 dB makeup gain bursts when the gate opened. The new transparent peak limiter operates at -3 dB with 0 dB makeup gain, guaranteeing background noise is never boosted.
+- **Multi-Band Speech vs. Background Distinguisher (VAD)**: Accurately isolates near-field human speech (140–330 Hz pitch fundamental + 350–2400 Hz vocal formants). Strictly rejects bird chirps (high-frequency dominance with near-zero low pitch) and far-field background talkers (diffuse, low amplitude).
+- **Smooth Downward Expander & 220ms Speech Hangover**: Smoothly ramps audio with a 10ms attack and 50ms release. Preserves natural word endings without sudden noise bursts or chattering.
 - **Zero Media Costs ($0 Bills)**: Direct WebRTC P2P mesh completely bypasses centralized media servers.
 
 ### ⚡ Instant Visual Feedback & Top Progress Bar

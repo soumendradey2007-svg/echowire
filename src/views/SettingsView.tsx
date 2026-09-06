@@ -251,7 +251,7 @@ function VoiceSection() {
       <SettingRow label="Output device">
         <Select value={outputDevice} onChange={setOutputDevice} options={deviceOptions} />
       </SettingRow>
-      <SettingRow label="Advanced Noise Suppression" description="Sub-bass rumble cut, AC hum filter, formant enhancer & keyboard clatter suppression">
+      <SettingRow label="Advanced Noise Suppression" description="Discord-style studio isolation: bird chirp ducking, background chatter rejection, 50/60Hz AC hum notch & zero-boost voice gating">
         <Toggle checked={noiseSuppression} onChange={handleToggleNC} />
       </SettingRow>
       <SettingRow label="Echo cancellation" description="Prevent audio feedback & acoustic bleed">

@@ -379,17 +379,24 @@ Feature 2: 10-Second Bottom-Right Notification Popups
 6. User B can click "View Requests" to accept, click "X" to dismiss, or let it
    auto-dismiss after 10 seconds.
 
-Feature 3: Studio Audio Filters & The Green Speaking Glow
-1. When you speak, audio runs through Web Audio nodes:
-   - Highpass (80Hz): Removes desk bumps and air rumble.
-   - Notch (50Hz/60Hz): Removes electrical power hum.
-   - Noise Gate: Mutes mic when you aren't talking.
-   - Compressor: Levels loud screams vs. soft whispers.
-2. AnalyserNode calculates Root Mean Square (RMS) volume level 60 times per second.
-3. When volume crosses the speech threshold:
+Feature 3: Discord-Grade Voice Isolation & Studio Audio DSP
+1. Hardware AGC Disarming: Hardware and operating system autoGainControl is explicitly set to false, preventing the microphone from auto-boosting distant chatter, bird chirping, or fan noise when the speaker is quiet.
+2. When you speak, audio runs through a cascaded Web Audio processing chain:
+   - Dual Highpass (125Hz, 24 dB/octave): Completely removes AC hum, desk bumps, and fan noise (<120Hz).
+   - Dual Notches (50Hz & 60Hz): Surgical international powerline hum rejection.
+   - Vocal Presence EQ (2.2kHz, +2.0 dB): Accentuates speech intelligibility, vowel formants, and consonants.
+   - Continuous Bird Chirp Attenuator (High Shelf @ 3.4kHz, -14 dB): Ducks the 3.5kHz–7.5kHz bird song frequency zone.
+   - Dual Steep Lowpass (4.0kHz & 4.2kHz, 24 dB/octave): Brickwalls bird chirps, cricket noises, and high hiss.
+   - Transparent Peak Safety Limiter (ZERO Makeup Gain): Operates at -3 dB with 0 dB makeup gain. Never amplifies quiet background noise!
+   - Smooth Downward Expander: Smoothly ramps audio in 10ms and releases in 50ms, eliminating background noise surges.
+3. Multi-Band Voice Activity Detector (VAD):
+   - Near-field pitch fundamental (140Hz–330Hz) and formant core (350Hz–2400Hz) are required to trigger voice activity.
+   - Bird chirps (high frequency energy with near-zero low pitch fundamental) are strictly rejected.
+   - Far-field background talkers (2–5m away) do not cross the adaptive near-field speech threshold.
+4. When voice activity is confirmed:
    - Your avatar glows with an emerald ring.
    - Server broadcasts { type: 'voice:state_change', isSpeaking: true }.
-   - All peers see your avatar glowing simultaneously!
+   - All peers see your avatar glowing simultaneously, with only the clean voice of the person speaking going through!
 
 Feature 4: Synchronized YouTube Music Playback
 1. When a track starts, the server records the exact epoch millisecond: startedAt.

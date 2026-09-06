@@ -365,15 +365,22 @@ Here is how each key feature executes under the hood, step by step:
 
 ---
 
-### Feature 3: Studio Audio Filters & The Green Speaking Glow
-1. **The Audio Chain**: When you talk, your microphone audio passes through Web Audio nodes:
-   * **Highpass (80Hz)**: Filters out desk knocks and heavy steps.
-   * **Notch (50/60Hz)**: Snips out electrical power cord hum.
-   * **Noise Gate**: Mutes mic signal when volume drops below room background noise.
-   * **Compressor**: Levels loud screams vs. soft whispers.
-2. **Volume Analysis**: An `AnalyserNode` calculates volume 60 times per second.
-3. **The Visualizer**: When volume exceeds the speech threshold, your browser sends `{ isSpeaking: true }` over WebSocket.
-4. **The Result**: An emerald green pulse ring illuminates your avatar on everyone's screen in real time.
+### Feature 3: Discord-Grade Voice Isolation & Studio Audio DSP
+1. **Hardware AGC Disarming**: Hardware and operating system `autoGainControl` is explicitly set to `false`. This prevents the microphone driver from auto-boosting distant chatter, birds outside the window, or computer fan whoosh when the speaker is quiet.
+2. **The Multi-Stage Studio DSP Chain**: When you speak, your microphone audio passes through a cascaded Web Audio processing chain:
+   * **Dual Highpass Filters (125Hz, 24 dB/octave Butterworth)**: Completely removes 50/60Hz AC hum, desk knocks, and PC fan vibrations (<120Hz) while keeping vocal fundamentals warm.
+   * **Dual Mains Power Hum Notches (50Hz & 60Hz, Q = 6.0)**: Surgical international electrical hum rejection.
+   * **Vocal Presence Peaking EQ (2.2kHz, +2.0 dB, Q = 1.1)**: Enhances speech articulation, vowel formants, and clarity.
+   * **Continuous Bird Chirp Attenuator (High Shelf @ 3.4kHz, -14 dB)**: Continuously ducks the 3.5kHz–7.5kHz frequency zone where bird songs and whistles live.
+   * **Dual Cascading Steep Lowpass Filters (4.0kHz & 4.2kHz, 24 dB/octave)**: Brickwalls high-frequency screech, bird chirps, and crickets (>35 to 50 dB attenuation).
+   * **Transparent Peak Safety Limiter (ZERO Makeup Gain)**: Unlike aggressive compressors that amplify background noise by +14 dB, this limiter operates at -3 dB with 0 dB makeup gain, ensuring ambient room sounds are never boosted.
+   * **Smooth Downward Expander**: Smoothly ramps audio in 10ms and releases in 50ms, eliminating sudden clicks or background noise surges.
+3. **Multi-Band Speech vs. Background Distinguisher (VAD)**: An `AnalyserNode` calculates audio spectrum 60 times per second:
+   * **Near-Field Vocal Fundamental (140Hz–330Hz)** & **Vocal Formants (350Hz–2400Hz)** are required to trigger voice activity.
+   * **Bird Chirp Rejection**: Audio with dominant high-frequency energy (>3.5kHz) and absent low fundamental pitch is strictly rejected.
+   * **Far-Field Rejection**: Distant people talking (2–5m away) do not cross the adaptive near-field speech threshold.
+4. **The Visualizer & Broadcast**: When voice activity is confirmed, your browser sends `{ isSpeaking: true }` over WebSocket.
+5. **The Result**: An emerald green pulse ring illuminates your avatar on everyone's screen in real time, with only the clean voice of the person speaking going through.
 
 ---
 

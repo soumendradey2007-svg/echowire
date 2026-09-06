@@ -13,8 +13,8 @@ export class VoiceManager {
   private peers = new Map<string, PeerConnection>();
   private currentRoomId: string | null = null;
   private currentUserId: string | null = null;
-  private isMuted: boolean = false;
-  private isDeafened: boolean = false;
+  public isMuted: boolean = false;
+  public isDeafened: boolean = false;
   private noiseCancellation: boolean = true;
   private audioContext: AudioContext | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
@@ -23,9 +23,11 @@ export class VoiceManager {
   private highpassFilter2: BiquadFilterNode | null = null;
   private notchFilter50: BiquadFilterNode | null = null;
   private notchFilter60: BiquadFilterNode | null = null;
-  private voiceEqNode: BiquadFilterNode | null = null;
-  private lowpassFilter: BiquadFilterNode | null = null;
-  private compressorNode: DynamicsCompressorNode | null = null;
+  private voicePresenceEq: BiquadFilterNode | null = null;
+  private highShelfBirdFilter: BiquadFilterNode | null = null;
+  private lowpassFilter1: BiquadFilterNode | null = null;
+  private lowpassFilter2: BiquadFilterNode | null = null;
+  private limiterNode: DynamicsCompressorNode | null = null;
   private gateGainNode: GainNode | null = null;
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private bypassGainNode: GainNode | null = null;
@@ -123,14 +125,15 @@ export class VoiceManager {
         audio: {
           echoCancellation: { ideal: true },
           noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true },
+          autoGainControl: { ideal: false },
           channelCount: { ideal: 1 },
           sampleRate: { ideal: 48000 },
           googEchoCancellation: { ideal: true },
-          googAutoGainControl: { ideal: true },
+          googAutoGainControl: { ideal: false },
           googNoiseSuppression: { ideal: true },
           googHighpassFilter: { ideal: true },
           googNoiseReduction: { ideal: true },
+          googExperimentalNoiseSuppression: { ideal: true },
         } as any,
       });
 
@@ -142,86 +145,107 @@ export class VoiceManager {
 
       this.sourceNode = this.audioContext.createMediaStreamSource(this.rawStream);
 
-      // --- ADVANCED MULTI-STAGE DSP CHAIN ---
-      // 1. Dual-stage Cascading 24dB/octave Sub-bass Butterworth Filter (85Hz)
-      // Eliminates table vibrations, desk knocks, AC air turbulence, phone buzzing
+      // --- ADVANCED MULTI-STAGE VOICE ISOLATION DSP CHAIN ---
+      const now = this.audioContext.currentTime;
+
+      // 1. Dual-stage Cascading 24dB/octave Sub-bass Butterworth Filter (125Hz)
+      // Eliminates table vibrations, desk knocks, AC air turbulence, fan hum (<120Hz)
       this.highpassFilter1 = this.audioContext.createBiquadFilter();
       this.highpassFilter1.type = 'highpass';
-      this.highpassFilter1.frequency.setValueAtTime(85, this.audioContext.currentTime);
-      this.highpassFilter1.Q.setValueAtTime(0.7071, this.audioContext.currentTime);
+      this.highpassFilter1.frequency.setValueAtTime(125, now);
+      this.highpassFilter1.Q.setValueAtTime(0.7071, now);
 
       this.highpassFilter2 = this.audioContext.createBiquadFilter();
       this.highpassFilter2.type = 'highpass';
-      this.highpassFilter2.frequency.setValueAtTime(85, this.audioContext.currentTime);
-      this.highpassFilter2.Q.setValueAtTime(0.7071, this.audioContext.currentTime);
+      this.highpassFilter2.frequency.setValueAtTime(125, now);
+      this.highpassFilter2.Q.setValueAtTime(0.7071, now);
 
       // 2. Dual Mains Power Hum Notch Filters (50Hz and 60Hz)
-      // Cuts electrical ground hum and AC adapter buzzing
+      // Cuts international electrical ground hum and AC adapter buzzing
       this.notchFilter50 = this.audioContext.createBiquadFilter();
       this.notchFilter50.type = 'notch';
-      this.notchFilter50.frequency.setValueAtTime(50, this.audioContext.currentTime);
-      this.notchFilter50.Q.setValueAtTime(4.0, this.audioContext.currentTime);
+      this.notchFilter50.frequency.setValueAtTime(50, now);
+      this.notchFilter50.Q.setValueAtTime(6.0, now);
 
       this.notchFilter60 = this.audioContext.createBiquadFilter();
       this.notchFilter60.type = 'notch';
-      this.notchFilter60.frequency.setValueAtTime(60, this.audioContext.currentTime);
-      this.notchFilter60.Q.setValueAtTime(4.0, this.audioContext.currentTime);
+      this.notchFilter60.frequency.setValueAtTime(60, now);
+      this.notchFilter60.Q.setValueAtTime(6.0, now);
 
-      // 3. Speech Intelligibility & Presence Peaking Filter (2800Hz)
-      // Boosts human vocal clarity and formant definition
-      this.voiceEqNode = this.audioContext.createBiquadFilter();
-      this.voiceEqNode.type = 'peaking';
-      this.voiceEqNode.frequency.setValueAtTime(2800, this.audioContext.currentTime);
-      this.voiceEqNode.Q.setValueAtTime(1.2, this.audioContext.currentTime);
-      this.voiceEqNode.gain.setValueAtTime(2.2, this.audioContext.currentTime);
+      // 3. Speech Intelligibility & Presence Peaking Filter (2200Hz)
+      // Boosts human vocal clarity, vowel formant definition and consonants
+      this.voicePresenceEq = this.audioContext.createBiquadFilter();
+      this.voicePresenceEq.type = 'peaking';
+      this.voicePresenceEq.frequency.setValueAtTime(2200, now);
+      this.voicePresenceEq.Q.setValueAtTime(1.1, now);
+      this.voicePresenceEq.gain.setValueAtTime(2.0, now);
 
-      // 4. Lowpass Hiss Cutoff Filter (11500Hz)
-      // Eliminates coil whine, RF interference, and USB static hiss
-      this.lowpassFilter = this.audioContext.createBiquadFilter();
-      this.lowpassFilter.type = 'lowpass';
-      this.lowpassFilter.frequency.setValueAtTime(11500, this.audioContext.currentTime);
-      this.lowpassFilter.Q.setValueAtTime(0.7071, this.audioContext.currentTime);
+      // 4. Dedicated Bird Chirp & High-Whistle Attenuator (High Shelf @ 3400Hz)
+      // Bird calls almost exclusively reside between 3500Hz and 7500Hz.
+      // This ducks that entire band by -14dB continuously in the audio path!
+      this.highShelfBirdFilter = this.audioContext.createBiquadFilter();
+      this.highShelfBirdFilter.type = 'highshelf';
+      this.highShelfBirdFilter.frequency.setValueAtTime(3400, now);
+      this.highShelfBirdFilter.gain.setValueAtTime(-14, now);
 
-      // 5. Broadcast Dynamic Voice Compressor & Downward Expander
-      // Tightens vocal dynamics, prevents clipping, and pushes down background room noise
-      this.compressorNode = this.audioContext.createDynamicsCompressor();
-      this.compressorNode.threshold.setValueAtTime(-28, this.audioContext.currentTime);
-      this.compressorNode.knee.setValueAtTime(12, this.audioContext.currentTime);
-      this.compressorNode.ratio.setValueAtTime(3.5, this.audioContext.currentTime);
-      this.compressorNode.attack.setValueAtTime(0.003, this.audioContext.currentTime);
-      this.compressorNode.release.setValueAtTime(0.12, this.audioContext.currentTime);
+      // 5. Dual Cascading Steep Lowpass Filter (4000Hz, 24dB/octave)
+      // Brickwalls bird chirps, cricket noise, fan hiss, and high-frequency screech.
+      // Human speech remains crystal clear and warm (human voice formants are <3400Hz).
+      this.lowpassFilter1 = this.audioContext.createBiquadFilter();
+      this.lowpassFilter1.type = 'lowpass';
+      this.lowpassFilter1.frequency.setValueAtTime(4000, now);
+      this.lowpassFilter1.Q.setValueAtTime(0.7071, now);
 
-      // 6. Precision Noise Gate Gain Node
+      this.lowpassFilter2 = this.audioContext.createBiquadFilter();
+      this.lowpassFilter2.type = 'lowpass';
+      this.lowpassFilter2.frequency.setValueAtTime(4200, now);
+      this.lowpassFilter2.Q.setValueAtTime(0.7071, now);
+
+      // 6. Transparent Peak Safety Limiter (ZERO Makeup Gain)
+      // CRITICAL: We do NOT use a low-threshold compressor (-28dB) because Web Audio's
+      // DynamicsCompressorNode adds +14dB automatic makeup gain that boosts background room noise!
+      // Instead, we use a high-threshold transparent peak limiter (-3dB) with 0dB makeup gain,
+      // which ONLY engages on loud shouts/peaks to prevent digital clipping.
+      this.limiterNode = this.audioContext.createDynamicsCompressor();
+      this.limiterNode.threshold.setValueAtTime(-3, now);
+      this.limiterNode.knee.setValueAtTime(0, now);
+      this.limiterNode.ratio.setValueAtTime(20, now);
+      this.limiterNode.attack.setValueAtTime(0.001, now);
+      this.limiterNode.release.setValueAtTime(0.04, now);
+
+      // 7. Precision Psychoacoustic Expander / Noise Gate Node
       this.gateGainNode = this.audioContext.createGain();
-      this.gateGainNode.gain.setValueAtTime(this.noiseCancellation ? 0.0 : 1.0, this.audioContext.currentTime);
+      this.gateGainNode.gain.setValueAtTime(this.noiseCancellation ? 0.0 : 1.0, now);
 
-      // 7. WebRTC Destination
+      // 8. WebRTC Destination
       this.destinationNode = this.audioContext.createMediaStreamDestination();
 
       // Bypass path (when NC is disabled)
       this.bypassGainNode = this.audioContext.createGain();
-      this.bypassGainNode.gain.setValueAtTime(this.noiseCancellation ? 0.0 : 1.0, this.audioContext.currentTime);
+      this.bypassGainNode.gain.setValueAtTime(this.noiseCancellation ? 0.0 : 1.0, now);
 
       // Connect Processed Signal Chain:
-      // source -> hp1 -> hp2 -> notch50 -> notch60 -> voiceEq -> lowpass -> compressor -> gateGain -> destination
+      // source -> hp1 -> hp2 -> notch50 -> notch60 -> voicePresenceEq -> highShelfBirdFilter -> lp1 -> lp2 -> limiter -> gateGain -> destination
       this.sourceNode.connect(this.highpassFilter1);
       this.highpassFilter1.connect(this.highpassFilter2);
       this.highpassFilter2.connect(this.notchFilter50);
       this.notchFilter50.connect(this.notchFilter60);
-      this.notchFilter60.connect(this.voiceEqNode);
-      this.voiceEqNode.connect(this.lowpassFilter);
-      this.lowpassFilter.connect(this.compressorNode);
-      this.compressorNode.connect(this.gateGainNode);
+      this.notchFilter60.connect(this.voicePresenceEq);
+      this.voicePresenceEq.connect(this.highShelfBirdFilter);
+      this.highShelfBirdFilter.connect(this.lowpassFilter1);
+      this.lowpassFilter1.connect(this.lowpassFilter2);
+      this.lowpassFilter2.connect(this.limiterNode);
+      this.limiterNode.connect(this.gateGainNode);
       this.gateGainNode.connect(this.destinationNode);
 
       // Connect Bypass Signal Chain:
       this.sourceNode.connect(this.bypassGainNode);
       this.bypassGainNode.connect(this.destinationNode);
 
-      // 8. High-Resolution Spectral Analyser for Voice Activity & Noise Detection
+      // 9. High-Resolution Spectral Analyser for Voice Activity & Noise Discrimination
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 1024;
-      this.analyser.smoothingTimeConstant = 0.25;
+      this.analyser.smoothingTimeConstant = 0.2;
       this.sourceNode.connect(this.analyser);
 
       this.localStream = this.destinationNode.stream;
@@ -244,7 +268,7 @@ export class VoiceManager {
     const timeData = new Uint8Array(fftSize);
     const freqData = new Uint8Array(this.analyser.frequencyBinCount);
     let lastSpokenTime = 0;
-    const HOLD_TIME_MS = 340; // 340ms hold prevents word clipping
+    const HOLD_TIME_MS = 220; // 220ms natural speech hangover prevents clipping word endings
 
     const loop = () => {
       if (!this.analyser || !this.audioContext) return;
@@ -271,46 +295,73 @@ export class VoiceManager {
       }
 
       // 3. Multi-Band Spectral Voice Discrimination
-      // At 48kHz with 1024 FFT, each bin is ~46.875Hz
-      // Vocal formant range: 280Hz to 3400Hz (bins 6 to 72)
-      let vocalSum = 0;
-      for (let b = 6; b <= 72; b++) {
-        vocalSum += freqData[b];
-      }
-      const vocalAvg = vocalSum / 67;
+      // At 48kHz with 1024 FFT, each bin is ~46.875Hz.
 
-      // High noise, mechanical keyboard clicks & mic hiss (>4000Hz, bins 85 to 220)
-      let hissSum = 0;
-      for (let b = 85; b <= 220; b++) {
-        hissSum += freqData[b];
+      // Pitch Fundamental Band (140Hz - 330Hz, bins 3 to 7)
+      // Near-field human speakers produce high acoustic energy here due to chest resonance & vocal cord oscillation.
+      let pitchSum = 0;
+      for (let b = 3; b <= 7; b++) {
+        pitchSum += freqData[b];
       }
-      const hissAvg = hissSum / 136;
+      const pitchFundAvg = pitchSum / 5;
+
+      // Vocal Formant Core Band (350Hz to 2400Hz, bins 8 to 51)
+      // Primary human speech intelligibility & vowel formant envelope
+      let vocalCoreSum = 0;
+      for (let b = 8; b <= 51; b++) {
+        vocalCoreSum += freqData[b];
+      }
+      const vocalCoreAvg = vocalCoreSum / 44;
+
+      // Bird Chirp & High Whistle Band (3500Hz to 7500Hz, bins 75 to 160)
+      // Bird songs, whistling, crickets, coil whine
+      let birdSum = 0;
+      for (let b = 75; b <= 160; b++) {
+        birdSum += freqData[b];
+      }
+      const birdNoiseAvg = birdSum / 86;
 
       // 4. Adaptive Room Noise Floor Tracking
+      // Dynamically adapts to ambient background hum, fan speed, room reverberation
       if (rms < this.ambientFloor) {
         this.ambientFloor = rms * 0.15 + this.ambientFloor * 0.85;
       } else {
         this.ambientFloor = this.ambientFloor * 0.998 + rms * 0.002;
       }
 
-      const noiseThreshold = Math.max(0.011, this.ambientFloor * 2.2);
+      // Near-field speaker threshold:
+      // When a user speaks into their mic, RMS is typically 0.025 to 0.30.
+      // Distant background chatter (2-5m away) and quiet birds are typically 0.004 to 0.014.
+      const nearFieldThreshold = Math.max(0.018, this.ambientFloor * 2.8);
+      const hasNearFieldEnergy = rms > nearFieldThreshold;
+
+      // 5. Bird Chirp Rejection:
+      // Birds have high energy in 3.5k-7.5k and virtually ZERO energy in 140-330Hz pitch band!
+      const isBirdChirp = birdNoiseAvg > 16 && (birdNoiseAvg > vocalCoreAvg * 0.9 || pitchFundAvg < 8);
+
+      // 6. Near-Field Human Speech Identification:
+      // - Must have sufficient near-field energy (rejects distant room chatter)
+      // - Must NOT be bird chirping
+      // - Vocal core must exceed baseline threshold (rejects room hum & fan whoosh)
+      // - Vocal core must dominate over high-frequency noise
+      // - Pitch fundamental or strong vocal resonance must be present
+      const isSpeech = hasNearFieldEnergy &&
+                       !isBirdChirp &&
+                       vocalCoreAvg > 16 &&
+                       vocalCoreAvg > birdNoiseAvg * 1.25 &&
+                       (pitchFundAvg > 8 || vocalCoreAvg > 26);
+
       const now = performance.now();
-
-      // Vocal Formant Pattern Match:
-      // True human speech has dominant energy in vocal formants vs broadband hiss
-      const isVoiceFormantPresent = vocalAvg > 12 && (vocalAvg > hissAvg * 1.15 || vocalAvg > 35);
-      const isSpeech = rms > noiseThreshold && isVoiceFormantPresent;
-
       if (isSpeech) {
         lastSpokenTime = now;
       }
 
       const isVoiceActive = isSpeech || (now - lastSpokenTime < HOLD_TIME_MS);
 
-      // 5. Studio-Grade Psychoacoustic Gate (8ms attack, 40ms smooth release)
+      // 7. Smooth Downward Expander (10ms attack, 50ms smooth release)
       if (this.gateGainNode && this.noiseCancellation) {
         const targetGain = isVoiceActive && !this.isMuted && !this.isDeafened ? 1.0 : 0.0;
-        const timeConstant = targetGain > 0.5 ? 0.008 : 0.040;
+        const timeConstant = targetGain > 0.5 ? 0.010 : 0.050;
         this.gateGainNode.gain.setTargetAtTime(
           targetGain,
           this.audioContext.currentTime,
@@ -382,7 +433,7 @@ export class VoiceManager {
     if (!sdp) return sdp;
     return sdp.replace(/a=fmtp:(\d+)\s+([^\r\n]+)/g, (match, pt, params) => {
       if (params.includes('minptime') || params.includes('useinbandfec') || match.toLowerCase().includes('opus')) {
-        return `a=fmtp:${pt} ${params};useinbandfec=1;usedtx=1;maxaveragebitrate=64000;stereo=0;sprop-stereo=0`;
+        return `a=fmtp:${pt} ${params};useinbandfec=1;usedtx=1;maxaveragebitrate=64000;stereo=0;sprop-stereo=0;cbr=0`;
       }
       return match;
     });
@@ -568,7 +619,15 @@ export class VoiceManager {
       this.audioContext = null;
     }
     this.sourceNode = null;
-    this.highpassFilter = null;
+    this.highpassFilter1 = null;
+    this.highpassFilter2 = null;
+    this.notchFilter50 = null;
+    this.notchFilter60 = null;
+    this.voicePresenceEq = null;
+    this.highShelfBirdFilter = null;
+    this.lowpassFilter1 = null;
+    this.lowpassFilter2 = null;
+    this.limiterNode = null;
     this.gateGainNode = null;
     this.destinationNode = null;
     this.bypassGainNode = null;
