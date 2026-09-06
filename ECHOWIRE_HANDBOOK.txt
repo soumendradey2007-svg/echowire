@@ -505,6 +505,33 @@ Feature 7: Public vs. Private Channels & Guest ID Isolation
    - Automatic route synchronization ensures the browser address bar updates to /rooms upon
      authentication instead of remaining stuck on /signin.
 
+Feature 8: Security & Architecture Hardening (CodeRabbit Remediation Suite)
+1. Zero-Trust Room Access Control:
+   - Client-controlled body.viaInvite has been permanently removed from POST /api/rooms/:id/join.
+     Access requires a verified server-side invite, active database membership, ownership, or valid
+     argon2id room password verification.
+2. WebSocket Event Authorization & Signaling Isolation:
+   - Every WebSocket event (voice:join, chat:send, music:control, voice:state_change, room:invite)
+     strictly checks caller membership against PostgreSQL.
+   - WebRTC signaling (webrtc:signal) enforces that the target user is in the exact same room,
+     preventing cross-room signal spoofing and peer enumeration.
+3. In-Band WebSocket Authentication (No Token in URL):
+   - Removed ?token= query parameter from WebSocket connection URL to protect session credentials
+     from being exposed in proxy logs or browser history.
+   - Clients authenticate in-band using { type: 'auth', data: { token } } over TLS or via HTTP-only
+     cookies, with an automated 5-second timeout for unauthenticated sockets.
+4. IDOR Elimination & Resource Protection:
+   - DELETE /api/friends/:id verifies that the caller is either the requester or addressee,
+     blocking unauthorized deletion of third-party friend relations.
+5. Session Revocation & Credential Rotation:
+   - Password changes revoke all other active sessions across devices while keeping current session.
+   - Password resets invalidate all existing sessions before issuing a new session token.
+6. Strict URL CORS Hostname Matching:
+   - Replaced substring matching with new URL(origin).hostname checks for localhost and 127.0.0.1.
+7. Memory Bounds & DoS Defense:
+   - In-memory rate limiting and music rooms feature periodic cleanup intervals and capped queue sizes.
+   - Outgoing music search HTTP requests are protected by AbortSignal.timeout(6000).
+
 
 ================================================================================
 CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION

@@ -454,6 +454,28 @@ Here is how each key feature executes under the hood, step by step:
 
 ---
 
+### Feature 8: Security & Architecture Hardening (CodeRabbit Remediation Suite)
+1. **Zero-Trust Room Access Control**:
+   * Client-controlled `body.viaInvite` has been permanently removed from `POST /api/rooms/:id/join`. Access to private or personal rooms requires a verified in-memory server-side invite matching the caller's authenticated user ID, active database membership, room ownership, or valid argon2id room password verification.
+2. **WebSocket Real-Time Event Authorization & Signaling Isolation**:
+   * Every WebSocket event (`voice:join`, `chat:send`, `music:control`, `voice:state_change`, `room:invite`) strictly verifies caller membership in the target room against PostgreSQL.
+   * WebRTC signaling (`webrtc:signal`) requires the destination user to be present in the exact same `currentRoomId` as the sender, making cross-room signaling spoofing and peer enumeration impossible.
+3. **In-Band WebSocket Authentication (No Token in URL)**:
+   * To prevent sensitive session tokens from being exposed in plaintext access logs, proxy servers, and browser history, WebSocket connections no longer append `?token=` in the URL.
+   * The client connects cleanly and authenticates in-band via an encrypted `{ type: 'auth', data: { token } }` payload over TLS or via HTTP-only session cookies. Connections failing to authenticate within a 5-second grace period are automatically terminated with code `4401`.
+4. **IDOR Elimination & Resource Protection**:
+   * `DELETE /api/friends/:id` requires the caller to be either the requester or the addressee in the friendship record; arbitrary deletion of third-party friendships returns `404 Not Found`.
+5. **Session Revocation & Credential Rotation**:
+   * Password changes (`POST /api/auth/password`) automatically revoke all other active sessions across devices for the user while preserving the current session.
+   * Password resets (`POST /api/auth/reset-password`) invalidate all existing sessions before issuing a fresh session token.
+6. **Strict URL CORS Hostname Matching**:
+   * Fastify CORS replaces loose substring checks (`origin.includes('localhost')`) with exact URL parsing (`new URL(origin).hostname`), preventing origin spoofing (such as `attacker-localhost.com`).
+7. **Memory Bounds & Denial-of-Service Defense**:
+   * In-memory rate-limiting (`RateLimiter`) and music room queues (`MusicService`) feature automated interval cleanups that purge expired windows and inactive rooms, and cap queue sizes to 100 tracks.
+   * Outgoing third-party queries in `/api/music/search` are protected by `AbortSignal.timeout(6000)` against hanging network sockets.
+
+---
+
 # CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION
 
 | Decision | Alternative Considered | The Real Reason We Built It This Way |

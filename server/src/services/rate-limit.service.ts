@@ -5,8 +5,26 @@ interface RateRecord {
 
 export class RateLimiter {
   private static limits = new Map<string, RateRecord>();
+  private static cleanupInterval: NodeJS.Timeout | null = null;
+
+  private static ensureCleanupStarted() {
+    if (!this.cleanupInterval) {
+      this.cleanupInterval = setInterval(() => {
+        const now = Date.now();
+        for (const [key, record] of this.limits.entries()) {
+          if (now > record.resetTime) {
+            this.limits.delete(key);
+          }
+        }
+      }, 60000);
+      if (typeof this.cleanupInterval.unref === 'function') {
+        this.cleanupInterval.unref();
+      }
+    }
+  }
 
   static check(key: string, max: number, windowMs: number): { allowed: boolean; retryAfterMs: number } {
+    this.ensureCleanupStarted();
     const now = Date.now();
     const existing = this.limits.get(key);
 

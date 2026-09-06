@@ -25,16 +25,14 @@ export class WebSocketClient {
       }
     }
 
-    const token = typeof window !== 'undefined' ? localStorage.getItem('echowire_token') : null;
-    if (token) {
-      const sep = url.includes('?') ? '&' : '?';
-      url += `${sep}token=${encodeURIComponent(token)}`;
-    }
-
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
       console.log('[WS] Connected to EchoWire Gateway');
+      const token = typeof window !== 'undefined' ? localStorage.getItem('echowire_token') : null;
+      if (token) {
+        this.send('auth', { token });
+      }
     };
 
     this.ws.onmessage = (event) => {

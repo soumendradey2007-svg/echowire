@@ -4,7 +4,8 @@ import { AuthService } from '../services/auth.service';
 import { RateLimiter } from '../services/rate-limit.service';
 import { MusicService } from '../services/music.service';
 import { db } from '../db';
-import { messages } from '../db/schema';
+import { messages, roomMembers, rooms } from '../db/schema';
+import { and, eq } from 'drizzle-orm';
 import { config } from '../config';
 
 interface ConnectedClient {
@@ -12,6 +13,7 @@ interface ConnectedClient {
   userId: string;
   username: string;
   currentRoomId: string | null;
+  isAuthenticated: boolean;
 }
 
 function parseCookies(header?: string): Record<string, string> {
@@ -58,29 +60,63 @@ export class WsGateway {
       }
       const sessionToken = queryToken || headerToken || parsedCookies[config.cookieName];
 
-      if (!sessionToken) {
-        try { ws.close(4401, 'Unauthorized'); } catch {}
-        return;
-      }
-
-      const auth = await AuthService.validateSession(sessionToken);
-      if (!auth) {
-        try { ws.close(4401, 'Unauthorized'); } catch {}
-        return;
-      }
-
       const client: ConnectedClient = {
         ws,
-        userId: auth.user.id,
-        username: auth.user.username,
+        userId: '',
+        username: '',
         currentRoomId: null,
+        isAuthenticated: false,
       };
 
+      if (sessionToken) {
+        const auth = await AuthService.validateSession(sessionToken);
+        if (auth) {
+          client.userId = auth.user.id;
+          client.username = auth.user.username;
+          client.isAuthenticated = true;
+        }
+      }
+
       this.clients.set(ws, client);
+
+      // If not authenticated immediately, give 5 seconds to send an in-band { type: 'auth', data: { token } }
+      let authTimeout: NodeJS.Timeout | null = null;
+      if (!client.isAuthenticated) {
+        authTimeout = setTimeout(() => {
+          if (!client.isAuthenticated) {
+            try { ws.close(4401, 'Unauthorized'); } catch {}
+          }
+        }, 5000);
+      }
 
       ws.on('message', async (raw: any) => {
         try {
           const payload = JSON.parse(raw.toString());
+          if (payload?.type === 'auth') {
+            const token = payload?.data?.token;
+            if (token) {
+              const auth = await AuthService.validateSession(token);
+              if (auth) {
+                client.userId = auth.user.id;
+                client.username = auth.user.username;
+                client.isAuthenticated = true;
+                if (authTimeout) {
+                  clearTimeout(authTimeout);
+                  authTimeout = null;
+                }
+                ws.send(JSON.stringify({ type: 'auth:success', data: { userId: client.userId } }));
+                return;
+              }
+            }
+            try { ws.close(4401, 'Unauthorized'); } catch {}
+            return;
+          }
+
+          if (!client.isAuthenticated) {
+            try { ws.close(4401, 'Unauthorized'); } catch {}
+            return;
+          }
+
           await this.handleEvent(client, payload);
         } catch (err) {
           console.error('[WS] Error processing message:', err);
@@ -88,17 +124,19 @@ export class WsGateway {
       });
 
       ws.on('close', async () => {
-        if (client.currentRoomId) {
+        if (authTimeout) {
+          clearTimeout(authTimeout);
+          authTimeout = null;
+        }
+        if (client.currentRoomId && client.userId) {
           const rId = client.currentRoomId;
           const uId = client.userId;
           try {
-            const { roomMembers: rmTable, rooms: rTable } = await import('../db/schema');
-            const { and: andEq, eq: eqCol } = await import('drizzle-orm');
-            await db.delete(rmTable).where(andEq(eqCol(rmTable.roomId, rId), eqCol(rmTable.userId, uId)));
-            const [room] = await db.select().from(rTable).where(eqCol(rTable.id, rId)).limit(1);
-            const remaining = await db.select().from(rmTable).where(eqCol(rmTable.roomId, rId));
+            await db.delete(roomMembers).where(and(eq(roomMembers.roomId, rId), eq(roomMembers.userId, uId)));
+            const [room] = await db.select().from(rooms).where(eq(rooms.id, rId)).limit(1);
+            const remaining = await db.select().from(roomMembers).where(eq(roomMembers.roomId, rId));
             if (room && room.description !== 'Personal Room' && remaining.length === 0) {
-              await db.delete(rTable).where(eqCol(rTable.id, rId));
+              await db.delete(rooms).where(eq(rooms.id, rId));
               WsGateway.broadcast('room:deleted', { roomId: rId });
             } else {
               WsGateway.broadcast('room:member_left', { roomId: rId, userId: uId });
@@ -106,7 +144,9 @@ export class WsGateway {
           } catch (e) {}
           WsGateway.broadcast('voice:peer_left', { roomId: rId, userId: uId });
         }
-        WsGateway.voiceStates.delete(client.userId);
+        if (client.userId) {
+          WsGateway.voiceStates.delete(client.userId);
+        }
         this.clients.delete(ws);
       });
     });
@@ -115,9 +155,18 @@ export class WsGateway {
   private static async handleEvent(client: ConnectedClient, payload: { type: string; data: any }) {
     const { type, data } = payload;
 
-        // WebRTC Signaling for live cross-device voice chat
+    // WebRTC Signaling for live cross-device voice chat
     if (type === 'room:invite') {
-      const { targetUserId, roomId, roomName } = data;
+      const { targetUserId, roomId, roomName } = data || {};
+      if (!roomId || !targetUserId) return;
+      // Authorize that sender is a member of the room
+      const [isMember] = await db
+        .select()
+        .from(roomMembers)
+        .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, client.userId)))
+        .limit(1);
+      if (!isMember) return;
+
       for (const [ws, c] of this.clients.entries()) {
         if (c.userId === targetUserId && ws.readyState === 1) {
           ws.send(JSON.stringify({
@@ -134,9 +183,12 @@ export class WsGateway {
     }
 
     if (type === 'webrtc:signal') {
-      const { targetUserId, signal } = data;
+      const { targetUserId, signal } = data || {};
+      if (!targetUserId || !client.currentRoomId) return;
+
+      // Ensure target user is in the same room as the sender to prevent cross-room signal spoofing/eavesdropping
       for (const [ws, c] of this.clients.entries()) {
-        if (c.userId === targetUserId && ws.readyState === 1) {
+        if (c.userId === targetUserId && c.currentRoomId === client.currentRoomId && ws.readyState === 1) {
           ws.send(JSON.stringify({
             type: 'webrtc:signal',
             data: {
@@ -149,7 +201,24 @@ export class WsGateway {
     }
 
     if (type === 'voice:join') {
-      const { roomId } = data;
+      const { roomId } = data || {};
+      if (!roomId) return;
+
+      // Verify that the user has an active membership record in this room
+      const [membership] = await db
+        .select()
+        .from(roomMembers)
+        .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, client.userId)))
+        .limit(1);
+
+      if (!membership) {
+        client.ws.send(JSON.stringify({
+          type: 'error',
+          data: { message: 'You must join the room via the room join API before establishing voice connection.' },
+        }));
+        return;
+      }
+
       client.currentRoomId = roomId;
       const existingPeers: any[] = [];
       const myState = WsGateway.getVoiceState(client.userId);
@@ -184,23 +253,28 @@ export class WsGateway {
     }
 
     if (type === 'voice:leave') {
-      const { roomId } = data;
+      const { roomId } = data || {};
+      const targetRoom = roomId || client.currentRoomId;
       client.currentRoomId = null;
       WsGateway.voiceStates.delete(client.userId);
-      this.broadcastToRoom(roomId, 'voice:peer_left', { userId: client.userId });
+      if (targetRoom) {
+        this.broadcastToRoom(targetRoom, 'voice:peer_left', { userId: client.userId });
+      }
     }
 
     if (type === 'voice:state_change') {
-      const { roomId, isMuted, isDeafened, isSpeaking } = data;
-      client.currentRoomId = roomId;
+      const { roomId, isMuted, isDeafened, isSpeaking } = data || {};
+      const targetRoomId = roomId || client.currentRoomId;
+      if (!targetRoomId || targetRoomId !== client.currentRoomId) return;
+
       WsGateway.voiceStates.set(client.userId, {
         isMuted: !!isMuted,
         isDeafened: !!isDeafened,
         isSpeaking: !!isSpeaking,
       });
-      this.broadcastToRoom(roomId, 'voice:state_change', {
+      this.broadcastToRoom(targetRoomId, 'voice:state_change', {
         userId: client.userId,
-        roomId,
+        roomId: targetRoomId,
         isMuted: !!isMuted,
         isDeafened: !!isDeafened,
         isSpeaking: !!isSpeaking,
@@ -208,8 +282,20 @@ export class WsGateway {
     }
 
     if (type === 'chat:send') {
-      const { roomId, content } = data;
-      if (!content || typeof content !== 'string') return;
+      const { roomId, content } = data || {};
+      if (!roomId || !content || typeof content !== 'string') return;
+      if (client.currentRoomId !== roomId) {
+        // Also verify DB membership if user hasn't joined voice in this room
+        const [isMember] = await db
+          .select()
+          .from(roomMembers)
+          .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, client.userId)))
+          .limit(1);
+        if (!isMember) {
+          client.ws.send(JSON.stringify({ type: 'error', data: { message: 'You must be a member of the room to send messages.' } }));
+          return;
+        }
+      }
 
       const rl = RateLimiter.check(`chat:${client.userId}`, 5, 1000);
       if (!rl.allowed) {
@@ -253,6 +339,14 @@ export class WsGateway {
       const { roomId, action, positionSeconds, position, track } = data || {};
       const targetRoomId = roomId || client.currentRoomId;
       if (targetRoomId) {
+        if (client.currentRoomId !== targetRoomId) {
+          const [isMember] = await db
+            .select()
+            .from(roomMembers)
+            .where(and(eq(roomMembers.roomId, targetRoomId), eq(roomMembers.userId, client.userId)))
+            .limit(1);
+          if (!isMember) return;
+        }
         const targetPos = position !== undefined ? position : positionSeconds;
         const updated = MusicService.control(targetRoomId, action, targetPos, track);
         this.broadcastToRoom(targetRoomId, 'music:sync', updated);
