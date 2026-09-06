@@ -389,12 +389,17 @@ Here is how each key feature executes under the hood, step by step:
 
 ---
 
-### Feature 4: Synchronized YouTube Music Playback
-1. **The Problem**: Two people loading a YouTube video independently will always be 5-10 seconds out of sync due to buffering.
-2. **The Timestamp Solution**: When a track starts, the server records the exact epoch millisecond: `startedAt`.
-3. **The Synchronization**: When any user enters the room, the server broadcasts `music:sync`. The client calculates:
+### Feature 4: Room-Isolated Synchronized YouTube Music Playback & Interactive Queue System
+1. **The Problem**: Two people loading a YouTube video independently will always be 5-10 seconds out of sync due to buffering. Furthermore, playing music in one room should never bleed to other rooms or to users browsing the directory.
+2. **Room-Isolated Architecture**: Each voice room maintains its own dedicated, isolated playlist, track state, and queue in `MusicService` (`Map<string, EphemeralMusicState>`). Audio playback is strictly bound to users actively inside that room (`activeRoomId === sync.roomId`). Users outside the room or in the lobby hear zero audio.
+3. **Interactive Queue Controls**:
+   * **Play Now**: Immediately starts any searched YouTube track.
+   * **1-Click Queue Play (`play_index`)**: Directly triggers playback of any track in the queue, shifting it into active playback.
+   * **Instant Queue Removal (`remove_queue`)**: Removes any queued track with optimistic UI updates for zero-lag responsiveness.
+4. **3-Second Auto-Pause Resolution**: YouTube embeds require compliant viewport layout bounding to pass Chromium and YouTube's viewability and engagement heuristics. Positioning the iframe within a compliant viewport dimension (`w-48 h-32` with `opacity-[0.01]` and `-z-50`) and setting explicit `origin` and `enablejsapi: 1` parameters guarantees continuous, uninterruptible audio playback.
+5. **The Epoch Timestamp Synchronization**: When a track starts, the server records the exact epoch millisecond: `startedAt`. When any user enters the room, the server broadcasts `music:sync`. The client calculates:
    $$\text{Offset Seconds} = \frac{\text{Date.now()} - \text{startedAt}}{1000}$$
-4. **The Result**: All YouTube players jump to that exact second, allowing everyone in the room to hear the beat drop simultaneously.
+6. **The Result**: All YouTube players in that specific room jump to that exact second, allowing everyone in the room to hear the beat drop simultaneously without leaking audio across the site.
 
 ---
 
@@ -438,9 +443,10 @@ Here is how each key feature executes under the hood, step by step:
      * In `handleDeleteRoom`, an explicit guard blocks any deletion attempt on personal rooms.
      * On the server ([`rooms.routes.ts`](file:///C:/Users/soume/Desktop/Voicechat%20(Echodown)/Follow%20Markdown%20File/server/src/routes/rooms.routes.ts)), `DELETE /api/rooms/:id` checks `if (room.description === 'Personal Room')` and rejects the request with `403 Forbidden: "Personal rooms are default and cannot be deleted."`.
      * Only user-created custom rooms display the delete option for their respective owner.
-6. **Personal Room Privacy & Outside User Locks**:
-   * A user's personal room is clearly distinguished with a `💜 Your Personal Room` badge, subtitle *"Your private default space"*, and is pinned to the top of the room browser.
-   * Other users' personal rooms are labeled `🔒 Personal • Private` with an `🔒 Invite Only` locked action button. Outside users cannot enter without an invitation.
+6. **Personal Room Privacy & Directory Hiding**:
+   * A user's personal room is clearly distinguished with a `💜 Your Personal Room` badge, subtitle *"Your private default space"*, and is pinned to the top of the user's room browser.
+   * Other users' personal rooms are **completely hidden from the directory**, eliminating user count leakage, directory clutter, and invasion of privacy.
+   * A user can only see another person's personal room if explicitly invited (`isInvited`), or if joining as an active participant via an invite link.
    * `POST /api/rooms/:id/join` enforces strict server-side authorization: only the owner, invited users (via direct invite or invite link), or existing members can enter (`403 Forbidden` otherwise).
 7. **Hydration Reliability & Progress Bar Visibility**:
    * Reloading the browser triggers the top progress bar and displays a clean spinner in the room browser instead of showing a misleading "0 available" message while data is in flight.

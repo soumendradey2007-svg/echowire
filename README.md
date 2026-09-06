@@ -119,10 +119,16 @@ EchoWire is an open-source, lightweight communication platform designed for high
 - **Visual Badges**: Illustrated with vibrant indicator dots, sleeping icons, and miniature headphone badges across the sidebar, friends list, and profile.
 - **Instant Sync**: Updates persist to the database and sync across peers in real time.
 
-### 🎵 Synchronized Room Music Player
-- Synchronized YouTube audio streaming directly inside voice channels.
-- Shared queue management with track additions and skipping.
-- Epoch timestamp synchronization (`music:sync`) ensures all room members hear music in perfect sync regardless of when they join.
+### 🎵 Room-Isolated Synchronized Music & Queue System
+- **Room-Scoped Audio Isolation**: Music is strictly bound to the active voice room. Users in the lobby or in other rooms hear zero audio. When you leave a room, playback halts immediately.
+- **Interactive Queue Management**: Full search, 1-click play now, interactive queue ordering, 1-click play directly from queue index (`play_index`), and instant track removal (`remove_queue`) with optimistic UI updates.
+- **3-Second Auto-Pause Immune**: YouTube iframe embed adheres to Chromium viewability standards with valid layout bounding, `origin` parameters, and unified play/pause state synchronization, eliminating the 3-second auto-pause loop.
+- **Epoch Timestamp Synchronization (`music:sync`)**: Guarantees all room members hear the track in perfect millisecond synchronization.
+
+### 🔒 Room Directory Privacy & Personal Space Isolation
+- **No User Enumeration / Privacy Invasion**: Strangers' personal rooms and private custom rooms are completely hidden from the directory.
+- **Personal Space Pinning**: Each user's personal room is pinned to the top of their own directory.
+- **Selective Discovery**: Users only see their own personal room, public community channels (joinable by everyone and guests), and rooms they have been explicitly invited to.
 
 ### 📜 DPDP Act 2023 Statutory Compliance
 - **Statutory Notice (Section 5)**: Explicit notice detailing specified personal data collection and lawful processing purposes.

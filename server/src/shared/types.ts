@@ -142,7 +142,7 @@ export interface WsClientEvents {
   'voice:state_change': { roomId: string; isMuted: boolean; isDeafened: boolean; isSpeaking: boolean };
   'presence:update': { status: UserPresenceStatus };
   'admin:action': { roomId: string; targetUserId: string; action: 'mute' | 'unmute' | 'kick' | 'ban'; reason?: string };
-  'music:control': { roomId: string; action: 'play' | 'pause' | 'seek' | 'add_track' | 'skip'; positionSeconds?: number; track?: MusicTrackMetadata };
+  'music:control': { roomId: string; action: 'play' | 'pause' | 'seek' | 'add_track' | 'skip' | 'play_index' | 'remove_queue'; positionSeconds?: number; position?: number; track?: MusicTrackMetadata };
 }
 
 export interface WsServerEvents {

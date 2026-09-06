@@ -78,8 +78,9 @@ export const ModerationActionSchema = z.object({
 });
 
 export const MusicControlSchema = z.object({
-  action: z.enum(['play', 'pause', 'seek', 'add_track', 'skip']),
+  action: z.enum(['play', 'pause', 'seek', 'add_track', 'skip', 'play_index', 'remove_queue']),
   positionSeconds: z.number().min(0).optional(),
+  position: z.number().int().min(0).optional(),
   track: z
     .object({
       provider: z.enum(['youtube', 'soundcloud', 'custom']),

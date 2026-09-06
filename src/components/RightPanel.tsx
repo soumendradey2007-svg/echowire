@@ -193,13 +193,16 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
   const [volume, setVolume] = useState(75)
   const progressBarRef = useRef<HTMLDivElement | null>(null)
 
-  // Request cross-room music state
+  // Request room-scoped music state
   useEffect(() => {
-    wsClient.send('music:get_state', { roomId: activeRoomId || 'global' });
+    if (!activeRoomId) return;
+
+    wsClient.send('music:get_state', { roomId: activeRoomId });
 
     const unsub = wsClient.on('music:sync', (sync: any) => {
-      if (sync) {
+      if (sync && (!sync.roomId || sync.roomId === activeRoomId)) {
         setMusicState({
+          roomId: sync.roomId || activeRoomId,
           track: sync.track,
           isPlaying: !!sync.isPlaying,
           queue: sync.queue || [],
@@ -276,8 +279,9 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
       addedBy: currentUser?.username || 'Member',
     };
 
+    if (!activeRoomId) return;
     wsClient.send('music:control', {
-      roomId: activeRoomId || 'global',
+      roomId: activeRoomId,
       action: 'play_now',
       track,
     });
@@ -286,6 +290,7 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
   };
 
   const addSongToQueue = (song: any) => {
+    if (!activeRoomId) return;
     const track = {
       id: song.videoId,
       provider: 'youtube',
@@ -298,44 +303,54 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
     };
 
     wsClient.send('music:control', {
-      roomId: activeRoomId || 'global',
+      roomId: activeRoomId,
       action: 'add_track',
       track,
     });
   };
 
   const togglePlay = () => {
+    if (!activeRoomId) return;
     wsClient.send('music:control', {
-      roomId: activeRoomId || 'global',
+      roomId: activeRoomId,
       action: musicState.isPlaying ? 'pause' : 'play',
     });
   };
 
   const handleSkip = () => {
+    if (!activeRoomId) return;
     wsClient.send('music:control', {
-      roomId: activeRoomId || 'global',
+      roomId: activeRoomId,
       action: 'skip',
     });
   };
 
   const playQueueIndex = (index: number) => {
+    if (!activeRoomId) return;
     wsClient.send('music:control', {
-      roomId: activeRoomId || 'global',
+      roomId: activeRoomId,
       action: 'play_index',
       position: index,
     });
   };
 
   const handleRemoveQueue = (index: number) => {
+    if (!activeRoomId) return;
+    // Optimistically update local queue for instant snappy UI feedback
+    setMusicState((prev: any) => {
+      const q = [...(prev?.queue || [])];
+      q.splice(index, 1);
+      return { ...prev, queue: q };
+    });
     wsClient.send('music:control', {
-      roomId: activeRoomId || 'global',
+      roomId: activeRoomId,
       action: 'remove_queue',
       position: index,
     });
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!progressBarRef.current || !duration) return;
+    if (!progressBarRef.current || !duration || !activeRoomId) return;
     const rect = progressBarRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const pct = Math.max(0, Math.min(1, clickX / rect.width));
@@ -346,7 +361,7 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
     }
     setCurrentTime(targetTime);
     wsClient.send('music:control', {
-      roomId: activeRoomId || 'global',
+      roomId: activeRoomId,
       action: 'seek',
       positionSeconds: targetTime,
     });
@@ -369,7 +384,7 @@ function MusicTab({ activeRoomId, sharedMusicState, currentUser }: { activeRoomI
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-1.5">
             <span className={`w-2 h-2 rounded-full ${musicState.isPlaying ? 'bg-emerald-400 animate-pulse' : 'bg-zinc-600'}`} />
-            <span className="text-zinc-400 text-xs font-medium">{musicState.isPlaying ? 'Playing in All Rooms' : 'Music Paused'}</span>
+            <span className="text-zinc-400 text-xs font-medium">{musicState.isPlaying ? 'Playing in Room' : 'Music Paused'}</span>
           </div>
           {current && (
             <span className="text-[10px] text-zinc-500 uppercase tracking-wider">{current.artist}</span>

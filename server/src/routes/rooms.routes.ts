@@ -8,6 +8,7 @@ import { rooms, roomMembers, users, roomBans } from '../db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { config } from '../config';
 import { WsGateway } from '../websocket/gateway';
+import { MusicService } from '../services/music.service';
 
 // In-memory set of rooms each user has joined during their session
 const userJoinedHistory = new Map<string, Set<string>>();
@@ -100,9 +101,13 @@ export async function roomRoutes(app: FastifyInstance) {
         );
 
         // Room Visibility Rules:
-        // - Public rooms are visible to everyone (registered users and guests)
-        // - Personal rooms and Private rooms are visible to owner, active members, or registered members in directory
-        const isVisible = !r.isPrivate || isPersonal || isOwner || isCurrentMember || (wasJoined && members.length > 0);
+        // 1. Personal Room: Strictly private to the owner unless a user is invited or currently inside.
+        // 2. Public Created Channels: Discoverable by everyone (registered users and guests).
+        // 3. Private Channels: Visible only to owner, invited users, and active members.
+        const isVisible = isPersonal
+          ? (isOwner || isInvited || isCurrentMember || (wasJoined && members.length > 0))
+          : (!r.isPrivate || isOwner || isInvited || isCurrentMember || (wasJoined && members.length > 0));
+
         if (!isVisible) continue;
 
         result.push({
@@ -360,6 +365,7 @@ export async function roomRoutes(app: FastifyInstance) {
       const remaining = await db.select().from(roomMembers).where(eq(roomMembers.roomId, id));
       if (room && room.description !== 'Personal Room' && remaining.length === 0) {
         await db.delete(rooms).where(eq(rooms.id, id));
+        MusicService.clearRoom(id);
         WsGateway.broadcast('room:deleted', { roomId: id });
       }
 
@@ -396,6 +402,7 @@ export async function roomRoutes(app: FastifyInstance) {
 
       await db.delete(roomMembers).where(eq(roomMembers.roomId, id));
       await db.delete(rooms).where(eq(rooms.id, id));
+      MusicService.clearRoom(id);
 
       WsGateway.broadcast('room:deleted', { roomId: id });
       return { success: true };

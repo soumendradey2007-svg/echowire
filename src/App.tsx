@@ -240,18 +240,23 @@ export default function App() {
 
   const [roomMusicState, setRoomMusicState] = useState<any>({ track: null, isPlaying: false, queue: [] });
 
-  // Dedicated Cross-Room Music Synchronization
+  // Dedicated Room-Scoped Music Synchronization
   useEffect(() => {
     if (!currentUser) return;
 
+    if (!activeRoomId) {
+      setRoomMusicState({ track: null, isPlaying: false, queue: [] });
+      return;
+    }
+
     const offMusic = wsClient.on('music:sync', (sync: any) => {
-      if (sync) {
+      if (sync && (!sync.roomId || sync.roomId === activeRoomId)) {
         setRoomMusicState(sync);
       }
     });
 
-    // Request initial music state immediately
-    wsClient.send('music:get_state', { roomId: activeRoomId || 'global' });
+    // Request initial music state for our active room
+    wsClient.send('music:get_state', { roomId: activeRoomId });
 
     return () => {
       offMusic();
@@ -518,6 +523,13 @@ export default function App() {
       setActiveRoomId(null);
       setIsMuted(false);
       setIsDeafened(false);
+      setRoomMusicState({ track: null, isPlaying: false, queue: [] });
+      if (globalAudioRef.current) {
+        try {
+          globalAudioRef.current.pause();
+          globalAudioRef.current.src = '';
+        } catch {}
+      }
       if (window.location.pathname !== '/rooms') {
         window.history.pushState({ type: 'nav', view: 'rooms' }, '', '/rooms');
       }

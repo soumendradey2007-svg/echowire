@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { IconPlay, IconPause, IconSkipForward, IconMusic, IconVolume2 } from './Icons';
 import { wsClient } from '../lib/ws';
 
@@ -14,8 +14,9 @@ export default function GlobalMusicBar({ musicState, activeRoomId, onOpenMusicPa
   const playerRef = useRef<any>(null);
   const currentTrackIdRef = useRef<string | null>(null);
 
-  const track = musicState?.track;
-  const isPlaying = !!musicState?.isPlaying;
+  const isInMusicRoom = !!(activeRoomId && musicState?.roomId === activeRoomId);
+  const track = isInMusicRoom ? musicState?.track : null;
+  const isPlaying = isInMusicRoom && !!musicState?.isPlaying;
 
   // Load YouTube IFrame API script once globally
   useEffect(() => {
@@ -26,9 +27,9 @@ export default function GlobalMusicBar({ musicState, activeRoomId, onOpenMusicPa
     }
   }, []);
 
-  // Global YouTube Player Management
+  // Room-Scoped YouTube Player Management
   useEffect(() => {
-    if (!track || !track.providerTrackId) {
+    if (!isInMusicRoom || !track || !track.providerTrackId) {
       if (playerRef.current && typeof playerRef.current.pauseVideo === 'function') {
         try { playerRef.current.pauseVideo(); } catch {}
       }
@@ -40,7 +41,7 @@ export default function GlobalMusicBar({ musicState, activeRoomId, onOpenMusicPa
     const setupPlayer = () => {
       const YT = (window as any).YT;
       if (!YT || !YT.Player) {
-        setTimeout(setupPlayer, 200);
+        setTimeout(setupPlayer, 150);
         return;
       }
 
@@ -79,6 +80,8 @@ export default function GlobalMusicBar({ musicState, activeRoomId, onOpenMusicPa
               disablekb: 1,
               playsinline: 1,
               rel: 0,
+              origin: window.location.origin,
+              enablejsapi: 1,
             },
             events: {
               onReady: (e: any) => {
@@ -88,7 +91,9 @@ export default function GlobalMusicBar({ musicState, activeRoomId, onOpenMusicPa
               },
               onStateChange: (e: any) => {
                 if (e.data === 0) {
-                  wsClient.send('music:control', { roomId: activeRoomId || 'global', action: 'skip' });
+                  if (activeRoomId) {
+                    wsClient.send('music:control', { roomId: activeRoomId, action: 'skip' });
+                  }
                 }
               },
             },
@@ -99,20 +104,7 @@ export default function GlobalMusicBar({ musicState, activeRoomId, onOpenMusicPa
     };
 
     setupPlayer();
-  }, [track?.providerTrackId, isPlaying]);
-
-  // Sync play/pause state changes
-  useEffect(() => {
-    if (playerRef.current) {
-      try {
-        if (isPlaying && typeof playerRef.current.playVideo === 'function') {
-          playerRef.current.playVideo();
-        } else if (!isPlaying && typeof playerRef.current.pauseVideo === 'function') {
-          playerRef.current.pauseVideo();
-        }
-      } catch {}
-    }
-  }, [isPlaying]);
+  }, [isInMusicRoom, track?.providerTrackId, isPlaying, activeRoomId]);
 
   // Sync volume changes
   useEffect(() => {
@@ -123,7 +115,11 @@ export default function GlobalMusicBar({ musicState, activeRoomId, onOpenMusicPa
 
   return (
     <>
-      <div className="fixed -bottom-96 -left-96 w-10 h-10 pointer-events-none opacity-0 overflow-hidden" aria-hidden="true">
+      {/* Valid viewport element (w-48 h-32 at bottom-right, -z-50) so YouTube viewability checks pass without 3s auto-pause */}
+      <div
+        className="fixed bottom-0 right-0 w-48 h-32 pointer-events-none opacity-[0.01] overflow-hidden -z-50"
+        aria-hidden="true"
+      >
         <div id="yt-global-player-mount" className="w-full h-full" />
       </div>
 
@@ -157,7 +153,7 @@ export default function GlobalMusicBar({ musicState, activeRoomId, onOpenMusicPa
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-zinc-400 text-[11px] truncate max-w-[140px]">{track.artist || 'YouTube'}</span>
               <span className="text-[9px] bg-accent/20 text-accent font-medium px-1.5 py-0.2 rounded font-mono flex-shrink-0">
-                Cross-Room
+                Room Audio
               </span>
             </div>
           </div>
