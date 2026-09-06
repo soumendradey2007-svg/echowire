@@ -9,6 +9,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { config } from '../config';
 import { WsGateway } from '../websocket/gateway';
 import { MusicService } from '../services/music.service';
+import { randomUUID } from 'node:crypto';
 
 // In-memory set of rooms each user has joined during their session
 const userJoinedHistory = new Map<string, Set<string>>();
@@ -66,19 +67,30 @@ export async function roomRoutes(app: FastifyInstance) {
         }
       }
 
-      // 2. Fetch all rooms and filter visibility
+      // 2. Fetch all rooms and batch-fetch all room members in a single query
       const allRooms = await db.select().from(rooms).orderBy(desc(rooms.createdAt));
+      const allMembers = await db
+        .select({
+          member: roomMembers,
+          user: users,
+        })
+        .from(roomMembers)
+        .innerJoin(users, eq(roomMembers.userId, users.id));
+
+      const membersByRoom = new Map<string, typeof allMembers>();
+      for (const m of allMembers) {
+        let list = membersByRoom.get(m.member.roomId);
+        if (!list) {
+          list = [];
+          membersByRoom.set(m.member.roomId, list);
+        }
+        list.push(m);
+      }
+
       const result = [];
 
       for (const r of allRooms) {
-        const members = await db
-          .select({
-            member: roomMembers,
-            user: users,
-          })
-          .from(roomMembers)
-          .innerJoin(users, eq(roomMembers.userId, users.id))
-          .where(eq(roomMembers.roomId, r.id));
+        const members = membersByRoom.get(r.id) || [];
 
         const isPersonal = r.description === 'Personal Room';
         const isOwner = r.ownerId === currentUserId;
@@ -235,13 +247,12 @@ export async function roomRoutes(app: FastifyInstance) {
         return reply.status(403).send({ error: 'Personal rooms are private. Please sign in to join.' });
       }
 
-      // Privacy Authorization: Check active invite or existing membership
+      // Privacy Authorization: Check verified server-side invite or existing membership
       cleanExpiredInvites();
       const body = (req.body || {}) as any;
       const hasDirectInvite = Array.from(serverRoomInvites.values()).some(
         (inv) => inv.roomId === id && inv.toUserId === auth.user.id && inv.expiresAt > Date.now()
       );
-      const isViaInvite = !!body.viaInvite || hasDirectInvite;
 
       const [existingMember] = await db
         .select()
@@ -249,7 +260,18 @@ export async function roomRoutes(app: FastifyInstance) {
         .where(and(eq(roomMembers.roomId, id), eq(roomMembers.userId, auth.user.id)))
         .limit(1);
 
-      const hasAccess = isOwner || isViaInvite || !!existingMember;
+      // Password verification if the room is password-protected
+      let isPasswordVerified = false;
+      if (room.passwordHash) {
+        if (body.password && typeof body.password === 'string') {
+          isPasswordVerified = await AuthService.verifyPassword(room.passwordHash, body.password);
+        }
+        if (!isPasswordVerified && !isOwner && !hasDirectInvite && !existingMember) {
+          return reply.status(403).send({ error: 'This room is password-protected. Invalid or missing password.' });
+        }
+      }
+
+      const hasAccess = isOwner || hasDirectInvite || !!existingMember || isPasswordVerified;
 
       // Personal Room Privacy Guard:
       if (isPersonal && !hasAccess) {
@@ -446,12 +468,34 @@ export async function roomRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'targetUserId and roomId are required' });
       }
 
+      // 1. Verify target room exists
+      const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+      if (!room) return reply.status(404).send({ error: 'Room not found' });
+
+      // 2. Authorization: Only room owner or active members can create invites
+      const isOwner = room.ownerId === auth.user.id;
+      const [member] = await db
+        .select()
+        .from(roomMembers)
+        .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, auth.user.id)))
+        .limit(1);
+
+      if (!isOwner && !member) {
+        return reply.status(403).send({ error: 'Only the room owner or active members can send invites' });
+      }
+
+      // 3. Verify target user exists
+      const [targetUser] = await db.select().from(users).where(eq(users.id, targetUserId)).limit(1);
+      if (!targetUser) {
+        return reply.status(404).send({ error: 'Target user not found' });
+      }
+
       cleanExpiredInvites();
-      const inviteId = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const inviteId = randomUUID();
       const invite: StoredRoomInvite = {
         id: inviteId,
         roomId,
-        roomName: roomName || 'Voice Room',
+        roomName: room.name || roomName || 'Voice Room',
         fromUserId: auth.user.id,
         fromUsername: auth.user.username,
         toUserId: targetUserId,

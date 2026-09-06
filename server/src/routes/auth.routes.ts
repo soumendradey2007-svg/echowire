@@ -31,7 +31,7 @@ import { RateLimiter } from '../services/rate-limit.service';
 import { EmailService } from '../services/email.service';
 import { db } from '../db';
 import { users, sessions } from '../db/schema';
-import { eq, or, and, gt, sql } from 'drizzle-orm';
+import { eq, or, and, gt, sql, ne } from 'drizzle-orm';
 import { config } from '../config';
 import crypto from 'node:crypto';
 
@@ -496,6 +496,9 @@ export async function authRoutes(app: FastifyInstance) {
         })
         .where(eq(users.id, user.id));
 
+      // Revoke all existing sessions upon password reset for security
+      await db.delete(sessions).where(eq(sessions.userId, user.id));
+
       const { rawToken, expiresAt } = await AuthService.createSession(user.id, req.headers['user-agent'], req.ip);
       reply.setCookie(config.cookieName, rawToken, getCookieOptions(expiresAt));
 
@@ -638,6 +641,10 @@ export async function authRoutes(app: FastifyInstance) {
 
       const newHash = await AuthService.hashPassword(body.newPassword);
       await db.update(users).set({ passwordHash: newHash, updatedAt: new Date() }).where(eq(users.id, auth.user.id));
+
+      // Revoke all other active sessions for this user except current session
+      await db.delete(sessions).where(and(eq(sessions.userId, auth.user.id), ne(sessions.id, auth.session.id)));
+
       return { success: true, message: 'Password updated successfully' };
     } catch (err: any) {
       return reply.status(500).send({ error: err.message || 'Password update failed' });
