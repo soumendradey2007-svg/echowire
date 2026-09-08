@@ -190,10 +190,25 @@ export async function friendRoutes(app: FastifyInstance) {
       const auth = await AuthService.validateSession(token);
       if (!auth) return reply.status(401).send({ error: 'Session expired' });
 
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
+      const [friendship] = await db
+        .select()
+        .from(friendships)
+        .where(
+          and(
+            eq(friendships.id, id),
+            or(eq(friendships.requesterId, auth.user.id), eq(friendships.addresseeId, auth.user.id))
+          )
+        )
+        .limit(1);
+
+      if (!friendship) {
+        return reply.status(404).send({ error: 'Friendship not found' });
+      }
+
       await db.delete(friendships).where(eq(friendships.id, id));
       return { success: true };
-    } catch (err) {
+    } catch (err: any) {
       return reply.status(500).send({ error: err.message || 'Failed to remove friend' });
     }
   });

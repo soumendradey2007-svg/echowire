@@ -26,12 +26,16 @@ export async function createServer() {
       if (
         origin === config.clientOrigin ||
         origin === 'https://echowire.vercel.app' ||
-        /^https:\/\/echowire(-[a-zA-Z0-9_-]+)?\.vercel\.app$/.test(origin) ||
-        origin.includes('localhost') ||
-        origin.includes('127.0.0.1')
+        /^https:\/\/echowire(-[a-zA-Z0-9_-]+)?\.vercel\.app$/.test(origin)
       ) {
         return cb(null, true);
       }
+      try {
+        const u = new URL(origin);
+        if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+          return cb(null, true);
+        }
+      } catch {}
       // Reject unknown origins
       return cb(new Error('CORS: origin not allowed'), false);
     },
@@ -103,7 +107,9 @@ export async function createServer() {
       if (ytIdMatch && ytIdMatch[1]) {
         const videoId = ytIdMatch[1];
         try {
-          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
+          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
+            signal: AbortSignal.timeout(6000),
+          });
           if (oembedRes.ok) {
             const oembed: any = await oembedRes.json();
             return {
@@ -140,6 +146,7 @@ export async function createServer() {
           'Accept-Language': 'en-US,en;q=0.9',
           'Cookie': 'CONSENT=YES+1; PREF=tz=UTC',
         },
+        signal: AbortSignal.timeout(6000),
       });
 
       const html = await res.text();
@@ -185,6 +192,7 @@ export async function createServer() {
           try {
             const invRes = await fetch(`${inst}/api/v1/search?q=${encodeURIComponent(query)}&type=video`, {
               headers: { 'Accept': 'application/json' },
+              signal: AbortSignal.timeout(6000),
             });
             if (invRes.ok) {
               const invData: any = await invRes.json();

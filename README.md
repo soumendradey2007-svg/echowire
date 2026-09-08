@@ -140,6 +140,13 @@ EchoWire is an open-source, lightweight communication platform designed for high
 ### 🛡️ Enterprise-Grade Security & Anti-Bot Defense
 - **Argon2id Password Hashing**: Memory-hard key derivation to prevent brute-force cracking.
 - **Google Identity Services (GIS)**: Cryptographically verified Google OAuth 2.0.
+- **Zero-Trust Room Access Control**: Client-controlled `viaInvite` bypassed decisions have been eliminated. Access to personal and private channels strictly checks server-side verified invites, database membership, room ownership, or verified password.
+- **WebSocket Event Authorization & WebRTC Signaling Isolation**: Every WebSocket event (`voice:join`, `chat:send`, `music:control`, `voice:state_change`, `room:invite`) strictly validates room membership. WebRTC signaling enforces that both parties reside in the exact same room, preventing cross-room signaling injection or peer enumeration.
+- **In-Band WebSocket Authentication**: Eliminates token leakage in proxy logs and browser history by removing `?token=` from WebSocket URLs and authenticating in-band over TLS or HTTP-only cookies with a 5-second unauthenticated timeout.
+- **IDOR Elimination**: Friendship deletion (`DELETE /api/friends/:id`) strictly validates caller involvement as either requester or addressee.
+- **Session Revocation on Credential Rotation**: Password changes invalidate all other active sessions; password resets revoke all existing sessions before issuing a new token.
+- **Strict Hostname URL CORS**: Replaced substring origin checks with exact `new URL(origin).hostname` parsing.
+- **Memory Bounds & Denial-of-Service Defense**: Scheduled TTL purges on rate-limit windows and music room states, plus a 100-track queue cap and `AbortSignal.timeout(6000)` on music search fetches.
 - **Airtight Session Lifecycle & Zero-Leak Sign Out**: Signing out or exiting a guest session atomically halts hardware microphone capture (`MediaStreamTrack.stop()`), closes Web Audio DSP nodes, severs WebRTC peer mesh connections, pauses active room music, permanently deletes the session from the PostgreSQL database, disarms WebSocket auto-reconnect timers, clears cookies/local storage, and purges in-memory states with animated UI feedback.
 - **Anti-Bot Invisible Honeypot**: Hidden `website_hp` input traps automated spam scrapers.
 - **Submission Timing Defense**: Rejects superhuman sub-second form submissions (< 750ms).

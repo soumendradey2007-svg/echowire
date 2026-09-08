@@ -2,8 +2,27 @@ import type { MusicTrackMetadata, EphemeralMusicState } from '../shared/types';
 
 export class MusicService {
   private static roomStates = new Map<string, EphemeralMusicState>();
+  private static cleanupInterval: NodeJS.Timeout | null = null;
+
+  private static ensureCleanupStarted() {
+    if (!this.cleanupInterval) {
+      this.cleanupInterval = setInterval(() => {
+        const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+        for (const [rid, state] of this.roomStates.entries()) {
+          // If paused/empty and not updated for 2 hours, purge from memory
+          if (!state.isPlaying && state.updatedAtServerTime < twoHoursAgo && rid !== 'global') {
+            this.roomStates.delete(rid);
+          }
+        }
+      }, 15 * 60 * 1000);
+      if (typeof this.cleanupInterval.unref === 'function') {
+        this.cleanupInterval.unref();
+      }
+    }
+  }
 
   private static getOrCreateRoomState(roomId: string): EphemeralMusicState {
+    this.ensureCleanupStarted();
     const rid = roomId || 'global';
     let s = this.roomStates.get(rid);
     if (!s) {
@@ -55,7 +74,7 @@ export class MusicService {
         s.isPlaying = true;
         s.basePositionSeconds = 0;
         s.updatedAtServerTime = now;
-      } else {
+      } else if (s.queue.length < 100) {
         s.queue.push(track);
       }
     } else if (action === 'skip') {
