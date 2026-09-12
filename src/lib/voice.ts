@@ -11,6 +11,9 @@ interface PeerConnection {
   pc: RTCPeerConnection;
   remoteAudio: HTMLAudioElement;
   pendingCandidates: RTCIceCandidateInit[];
+  makingOffer: boolean;
+  ignoreOffer: boolean;
+  isPolite: boolean;
 }
 
 export class VoiceManager {
@@ -54,7 +57,10 @@ export class VoiceManager {
   private destinationNode: MediaStreamAudioDestinationNode | null = null;
   private bypassGainNode: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
-  private animId: any = null;
+  private currentAcquisitionId: number = 0;
+  private vadInterval: number | null = null;
+  private lastSpeakingState: boolean = false;
+  private lastReportedLevel: number = 0;
   private ambientFloor: number = 0.005;
   private onMicLevelCallbacks: Set<(level: number) => void> = new Set();
   private unsubSignal: any = null;
@@ -94,7 +100,7 @@ export class VoiceManager {
     return () => this.onMicLevelCallbacks.delete(callback);
   }
 
-  async joinRoom(roomId: string, userId: string, onSpeaking: (speaking: boolean) => void) {
+  async joinRoom(roomId: string, userId: string, onSpeaking: (speaking: boolean, level: number) => void) {
     this.leaveRoom();
     this.currentRoomId = roomId;
     this.currentUserId = userId;
@@ -136,14 +142,17 @@ export class VoiceManager {
     wsClient.send('voice:join', { roomId });
   }
 
-  private async captureMicrophone(onSpeaking: (speaking: boolean) => void) {
+  private async captureMicrophone(onSpeaking: (speaking: boolean, level: number) => void) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       alert('Microphone requires HTTPS on mobile. Please open via https://');
       return;
     }
 
+    this.currentAcquisitionId++;
+    const acqId = this.currentAcquisitionId;
+
     try {
-      this.rawStream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: { ideal: true },
           noiseSuppression: { ideal: true },
@@ -158,6 +167,12 @@ export class VoiceManager {
           googExperimentalNoiseSuppression: { ideal: true },
         } as any,
       });
+
+      if (this.currentAcquisitionId !== acqId || !this.currentRoomId) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      this.rawStream = stream;
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       this.audioContext = new AudioCtx({ sampleRate: 48000 });
@@ -309,7 +324,7 @@ export class VoiceManager {
     }
   }
 
-  private startNoiseGateAndSpeakingLoop(onSpeaking: (speaking: boolean) => void) {
+  private startNoiseGateAndSpeakingLoop(onSpeaking: (speaking: boolean, level: number) => void) {
     if (!this.analyser || !this.audioContext) return;
     const fftSize = this.analyser.fftSize;
     const timeData = new Uint8Array(fftSize);
@@ -337,9 +352,7 @@ export class VoiceManager {
       const rawPercent = ((db - minDb) / (maxDb - minDb)) * 100;
       const micPercent = Math.min(100, Math.max(0, Math.round(rawPercent)));
 
-      for (const cb of this.onMicLevelCallbacks) {
-        cb(micPercent);
-      }
+
 
       // 3. Multi-Band Spectral Voice Discrimination
       // At 48kHz with 1024 FFT, each bin is ~46.875Hz.
@@ -430,12 +443,21 @@ export class VoiceManager {
       }
 
       const speaking = !this.isMuted && !this.isDeafened && isVoiceActive;
-      onSpeaking(speaking);
+      
+      const stateChanged = speaking !== this.lastSpeakingState;
+      const levelChanged = Math.abs(micPercent - this.lastReportedLevel) > 0.05;
 
-      this.animId = requestAnimationFrame(loop);
+      if (stateChanged || levelChanged) {
+        onSpeaking(speaking, micPercent);
+        for (const cb of this.onMicLevelCallbacks) {
+          cb(micPercent);
+        }
+        this.lastSpeakingState = speaking;
+        this.lastReportedLevel = micPercent;
+      }
     };
 
-    loop();
+    this.vadInterval = window.setInterval(loop, 30);
   }
 
   private attachTracks(peer: PeerConnection) {
@@ -465,6 +487,9 @@ export class VoiceManager {
       pc,
       remoteAudio,
       pendingCandidates: [],
+      makingOffer: false,
+      ignoreOffer: false,
+      isPolite: this.currentUserId! > targetUserId,
     };
     this.peers.set(targetUserId, peer);
 
@@ -501,52 +526,78 @@ export class VoiceManager {
 
   private async initiateCall(targetUserId: string) {
     const peer = await this.getOrCreatePeer(targetUserId);
-    const offer = await peer.pc.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: false,
-    });
-    if (offer.sdp) {
-      offer.sdp = this.optimizeOpusSdp(offer.sdp);
+    try {
+      peer.makingOffer = true;
+      const offer = await peer.pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false,
+      });
+      if (offer.sdp) {
+        offer.sdp = this.optimizeOpusSdp(offer.sdp);
+      }
+      await peer.pc.setLocalDescription(offer);
+      wsClient.send('webrtc:signal', {
+        targetUserId,
+        signal: { type: 'offer', sdp: offer },
+      });
+    } catch (err) {
+      console.error('[VOICE] initiateCall error', err);
+    } finally {
+      peer.makingOffer = false;
     }
-    await peer.pc.setLocalDescription(offer);
-    wsClient.send('webrtc:signal', {
-      targetUserId,
-      signal: { type: 'offer', sdp: offer },
-    });
   }
 
   private async handleSignal(fromUserId: string, signal: any) {
     if (fromUserId === this.currentUserId) return;
     const peer = await this.getOrCreatePeer(fromUserId);
 
-    if (signal.type === 'offer') {
-      await peer.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-      for (const cand of peer.pendingCandidates) {
-        await peer.pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
-      }
-      peer.pendingCandidates = [];
+    try {
+      if (signal.type === 'offer' || signal.type === 'answer') {
+        const isOffer = signal.type === 'offer';
+        const isCollision = isOffer && (peer.makingOffer || peer.pc.signalingState !== 'stable');
 
-      const answer = await peer.pc.createAnswer();
-      if (answer.sdp) {
-        answer.sdp = this.optimizeOpusSdp(answer.sdp);
+        peer.ignoreOffer = !peer.isPolite && isCollision;
+        if (peer.ignoreOffer) {
+          return;
+        }
+
+        if (isCollision && peer.pc.signalingState === 'have-local-offer') {
+          await peer.pc.setLocalDescription({ type: 'rollback' });
+        }
+
+        await peer.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+
+        if (isOffer) {
+          const answer = await peer.pc.createAnswer();
+          if (answer.sdp) {
+            answer.sdp = this.optimizeOpusSdp(answer.sdp);
+          }
+          await peer.pc.setLocalDescription(answer);
+          wsClient.send('webrtc:signal', {
+            targetUserId: fromUserId,
+            signal: { type: 'answer', sdp: answer },
+          });
+        }
+
+        for (const cand of peer.pendingCandidates) {
+          await peer.pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+        }
+        peer.pendingCandidates = [];
+      } else if (signal.type === 'candidate') {
+        try {
+          if (peer.pc.remoteDescription && peer.pc.remoteDescription.type) {
+            await peer.pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          } else {
+            peer.pendingCandidates.push(signal.candidate);
+          }
+        } catch (err) {
+          if (!peer.ignoreOffer) {
+            console.error('[VOICE] ICE add error', err);
+          }
+        }
       }
-      await peer.pc.setLocalDescription(answer);
-      wsClient.send('webrtc:signal', {
-        targetUserId: fromUserId,
-        signal: { type: 'answer', sdp: answer },
-      });
-    } else if (signal.type === 'answer') {
-      await peer.pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-      for (const cand of peer.pendingCandidates) {
-        await peer.pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
-      }
-      peer.pendingCandidates = [];
-    } else if (signal.type === 'candidate') {
-      if (peer.pc.remoteDescription && peer.pc.remoteDescription.type) {
-        await peer.pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
-      } else {
-        peer.pendingCandidates.push(signal.candidate);
-      }
+    } catch (err) {
+      console.error('[VOICE] handleSignal error', err);
     }
   }
 
@@ -727,7 +778,7 @@ export class VoiceManager {
   }
 
   leaveRoom() {
-    if (this.animId) cancelAnimationFrame(this.animId);
+    if (this.vadInterval) { window.clearInterval(this.vadInterval); this.vadInterval = null; }
     if (this.unsubSignal) this.unsubSignal();
     if (this.unsubPeerJoined) this.unsubPeerJoined();
     if (this.unsubPeerLeft) this.unsubPeerLeft();
@@ -781,6 +832,7 @@ export class VoiceManager {
     this.destinationNode = null;
     this.bypassGainNode = null;
     this.analyser = null;
+    if (this.vadInterval) { window.clearInterval(this.vadInterval); this.vadInterval = null; }
     this.currentRoomId = null;
     this.currentUserId = null;
   }

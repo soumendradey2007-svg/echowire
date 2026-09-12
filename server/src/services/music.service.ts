@@ -52,11 +52,17 @@ export class MusicService {
     const now = Date.now();
 
     if (action === 'play') {
-      s.isPlaying = true;
-      s.updatedAtServerTime = now;
+      if (!s.isPlaying) {
+        s.isPlaying = true;
+        s.updatedAtServerTime = now;
+      }
     } else if (action === 'pause') {
-      s.isPlaying = false;
-      s.updatedAtServerTime = now;
+      if (s.isPlaying) {
+        const elapsed = Math.max(0, (now - s.updatedAtServerTime) / 1000);
+        s.basePositionSeconds = (s.basePositionSeconds || 0) + elapsed;
+        s.isPlaying = false;
+        s.updatedAtServerTime = now;
+      }
     } else if (action === 'seek') {
       s.basePositionSeconds = position || 0;
       s.updatedAtServerTime = now;
