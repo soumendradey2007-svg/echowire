@@ -476,6 +476,31 @@ Here is how each key feature executes under the hood, step by step:
 
 ---
 
+### Feature 9: Full-Stack Reliability & Zero-Cost Real-Time Hardening (Audit Remediation)
+1. **Uninterrupted Background Tab Voice Calling (Decoupled VAD)**:
+   * *Problem*: In web browsers, when you minimize a tab or switch windows (for example, while playing a game full-screen), the browser throttles `requestAnimationFrame` down to 0 or 1 frames per second to save battery. If your voice volume meter runs on that loop, the audio gate freezes shut and your friends can no longer hear you speak.
+   * *Solution*: We decoupled Voice Activity Detection from animation frames to a continuous, battery-efficient 30-millisecond hardware clock timer (`setInterval`). Your voice remains clear and uninterrupted even when gaming or browsing other tabs.
+2. **W3C Perfect Negotiation (No Call Collisions / Glare)**:
+   * *Problem*: When two users join a room at the exact same second, both of their browsers attempt to send connection offers to each other at once. In standard WebRTC, this causes a "glare" conflict (`InvalidStateError`) that breaks audio between those two players.
+   * *Solution*: We implemented the official W3C Perfect Negotiation standard. One browser is designated "polite" (based on user ID comparison) and gracefully rolls back its own offer (`type: rollback`) to accept the other's offer, while buffering ICE network candidates until the connection is ready. Result: zero call setup failures.
+3. **Dedicated Password Reset Tokens (Zero Token Confusion)**:
+   * *Problem*: If an application stores email verification tokens and password reset tokens in the same database column, a registration verification token could theoretically be submitted to the password reset endpoint to change the account password.
+   * *Solution*: We added distinct `resetToken` and `resetExpiresAt` columns in PostgreSQL. Reset tokens and verification tokens live in separate lanes and cannot be mixed up.
+4. **Google OAuth Account Pre-Hijacking Immunity**:
+   * *Problem*: If an attacker pre-registers an unverified account using a victim's email address, and the victim later signs in with Google, linking the account could leave the attacker's password active.
+   * *Solution*: When a user signs in via Google OAuth with an email that was previously unverified, any old password hash is permanently replaced with a secure randomized string, locking out any attacker passwords.
+5. **Strict Origin Whitelisting (No Subdomain CORS Hijacking)**:
+   * *Problem*: Regular expression CORS checks that permit any `echowire-*.vercel.app` domain could allow an attacker who deploys a test project on Vercel with that prefix to steal session cookies.
+   * *Solution*: Replaced the wildcard regex with an explicit whitelist: only the exact production domain (`https://echowire.vercel.app`), the configured client origin, and local development ports are accepted.
+6. **Chat History Privacy & Explicit Socket Eviction**:
+   * *Problem*: If message history endpoints only check permissions on private rooms, personal and password-protected rooms could leak messages to curious outsiders.
+   * *Solution*: `GET /api/rooms/:id/messages` strictly checks whether the user is an active member or the owner of the room. Furthermore, when a user leaves or is kicked, `WsGateway.evictUserFromRoom` immediately resets their socket room status so they cannot send or receive chat.
+7. **Elapsed Music Time Accumulation**:
+   * *Problem*: Pausing a synchronized track did not preserve the seconds played, causing the song to rewind to 0:00 when resumed.
+   * *Solution*: When a track is paused, the exact elapsed playing time is saved into `basePositionSeconds` so playback resumes seamlessly from the exact second it was paused.
+
+---
+
 # CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION
 
 | Decision | Alternative Considered | The Real Reason We Built It This Way |

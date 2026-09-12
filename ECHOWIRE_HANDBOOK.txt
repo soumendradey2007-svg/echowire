@@ -532,6 +532,32 @@ Feature 8: Security & Architecture Hardening (CodeRabbit Remediation Suite)
    - In-memory rate limiting and music rooms feature periodic cleanup intervals and capped queue sizes.
    - Outgoing music search HTTP requests are protected by AbortSignal.timeout(6000).
 
+Feature 9: Full-Stack Reliability & Zero-Cost Real-Time Hardening (Audit Remediation)
+1. Uninterrupted Background Tab Voice Calling (Decoupled VAD):
+   - Browsers throttle animation frames down to 0-1 FPS in minimized or background tabs.
+     We decoupled Voice Activity Detection from animation frames to a continuous 30ms hardware
+     clock timer. Voice stays active and clear when playing games full-screen or alt-tabbed.
+2. W3C Perfect Negotiation (No Call Collisions / Glare):
+   - When two users enter a room at the exact same moment, their browsers negotiate automatically
+     using the W3C Perfect Negotiation standard. The polite peer gracefully rolls back its offer,
+     eliminating InvalidStateError audio deadlocks.
+3. Dedicated Password Reset Tokens (Zero Token Confusion):
+   - Added separate reset_token and reset_expires_at columns to PostgreSQL, ensuring email
+     verification tokens can never be used to reset account passwords.
+4. Google OAuth Account Pre-Hijacking Immunity:
+   - Signing in with Google on an unverified pre-registered account permanently overwrites any
+     attacker-supplied password hash with a random 32-byte string, securing the user's account.
+5. Strict Origin Whitelisting (No Subdomain CORS Hijacking):
+   - Replaced wildcard Vercel subdomain regex with an explicit whitelist of approved origins and
+     localhost, preventing cross-origin session theft from attacker Vercel projects.
+6. Chat History Privacy & Socket Eviction:
+   - GET /api/rooms/:id/messages checks database membership for all rooms, stopping unauthorized
+     reading of chat history. Kicked/leaving users have their socket room state immediately cleared
+     via WsGateway.evictUserFromRoom.
+7. Elapsed Music Time Accumulation:
+   - Pausing a track accumulates elapsed playback time into basePositionSeconds, preventing resumed
+     songs from restarting at 0:00.
+
 
 ================================================================================
 CHAPTER 6: THE "WHY" BEHIND EVERY ARCHITECTURAL DECISION
