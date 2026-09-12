@@ -11,6 +11,8 @@ export const users = pgTable('users', {
   isEmailVerified: boolean('is_email_verified').notNull().default(false),
   verificationToken: varchar('verification_token', { length: 64 }),
   verificationExpiresAt: timestamp('verification_expires_at', { withTimezone: true }),
+  resetToken: varchar('reset_token', { length: 64 }),
+  resetExpiresAt: timestamp('reset_expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });

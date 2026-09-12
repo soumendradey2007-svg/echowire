@@ -6,7 +6,8 @@ const sessionSecret = process.env.SESSION_SECRET || 'echowire-dev-insecure-sessi
 
 if (env === 'production') {
   if (!process.env.SESSION_SECRET || sessionSecret.includes('echowire-dev-insecure') || sessionSecret.length < 32) {
-    console.warn('[SECURITY WARNING] In production, SESSION_SECRET must be set to a cryptographically strong secret of at least 32 characters.');
+    console.error('[SECURITY ERROR] In production, SESSION_SECRET must be set to a cryptographically strong secret of at least 32 characters.');
+    process.exit(1);
   }
 }
 

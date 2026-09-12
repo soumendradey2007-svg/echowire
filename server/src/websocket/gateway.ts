@@ -36,6 +36,17 @@ export class WsGateway {
     return this.voiceStates.get(userId) || { isMuted: false, isDeafened: false, isSpeaking: false };
   }
 
+  static evictUserFromRoom(userId: string, roomId: string) {
+    for (const [ws, c] of this.clients.entries()) {
+      if (c.userId === userId && c.currentRoomId === roomId) {
+        c.currentRoomId = null;
+      }
+    }
+    this.voiceStates.delete(userId);
+    this.broadcastToRoom(roomId, 'voice:peer_left', { userId });
+    this.broadcast('room:member_left', { roomId, userId });
+  }
+
   static register(app: FastifyInstance) {
     app.get('/api/ws', { websocket: true }, async (connection: any, req) => {
       // Fastify WebSocket v10 passes socket directly, v8 passes connection.socket

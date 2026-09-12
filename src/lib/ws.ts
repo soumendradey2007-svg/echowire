@@ -29,7 +29,7 @@ export class WebSocketClient {
 
     this.ws.onopen = () => {
       console.log('[WS] Connected to EchoWire Gateway');
-      const token = typeof window !== 'undefined' ? localStorage.getItem('echowire_token') : null;
+      const token = typeof window !== 'undefined' ? (localStorage.getItem('echowire_token') || sessionStorage.getItem('echowire_token')) : null;
       if (token) {
         this.send('auth', { token });
       }
