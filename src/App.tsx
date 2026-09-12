@@ -40,6 +40,7 @@ export default function App() {
   const [messages, setMessages] = useState<any[]>([]);
   const [invites, setInvites] = useState<any[]>([]);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
+  const [incomingInvite, setIncomingInvite] = useState<{ id: string; roomId: string; roomName: string; inviterName: string } | null>(null);
 
   const addToast = (toast: Omit<ToastNotification, 'id'>) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -158,6 +159,7 @@ export default function App() {
         expiresAt: inv.expiresAt || (Date.now() + 5 * 60 * 1000),
       };
       setInvites((prev) => [fullInvite, ...prev.filter((x) => x.id !== fullInvite.id && x.roomId !== inv.roomId)]);
+      setIncomingInvite({ id: fullInvite.id, roomId: fullInvite.roomId, roomName: fullInvite.roomName, inviterName: fullInvite.fromUsername });
       addToast({
         type: 'room_invite',
         title: 'Room Invite',
@@ -487,6 +489,10 @@ export default function App() {
 
   const handleJoin = async (id: string, viaInvite = false) => {
     try {
+      if (activeRoomId && activeRoomId !== id) {
+        voiceManager.leaveRoom();
+        await apiFetch(`/api/rooms/${activeRoomId}/leave`, { method: 'POST', silent: true }).catch(() => {});
+      }
       await apiFetch(`/api/rooms/${id}/join`, {
         method: 'POST',
         body: JSON.stringify({ viaInvite }),

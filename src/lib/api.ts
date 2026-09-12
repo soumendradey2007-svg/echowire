@@ -100,10 +100,10 @@ export async function apiFetch<T = any>(endpoint: string, options: ApiFetchOptio
       if (!body) {
         body = '{}';
       }
-      if (!headers['Content-Type']) {
+      if (!headers['Content-Type'] && !(body instanceof FormData)) {
         headers['Content-Type'] = 'application/json';
       }
-    } else if (body && !headers['Content-Type']) {
+    } else if (body && !headers['Content-Type'] && !(body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
 
