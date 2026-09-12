@@ -78,6 +78,10 @@ EchoWire is an open-source, lightweight communication platform designed for high
   - ⭕ **Disabled (Raw Microphone)**: Pure uncompressed pass-through for studio condenser microphones or instruments.
 - **Hardware AGC Disarmed (`autoGainControl: false`)**: Disables browser and operating system automatic gain boost, preventing microphone sensitivity from aggressively boosting ambient room noise, bird chirps outside the window, and distant background chatter.
 - **Smooth Downward Expander & 220ms Speech Hangover**: Smoothly ramps audio with a 10ms attack and 50ms release. Preserves natural word endings without sudden noise bursts or chattering.
+- **Background Tab Voice Continuity (Decoupled VAD)**: The Voice Activity Detector and audio gate run on a dedicated 30ms timer independent of `requestAnimationFrame`. When alt-tabbing or playing full-screen games, the audio gate remains fully operational and never locks your microphone into silence.
+- **Microphone Acquisition Abort Guard**: Cancels pending microphone stream initialization and stops hardware tracks immediately if a user departs or navigates away while the browser's permission prompt is active.
+- **W3C Perfect Negotiation & Zero-Glare Calling**: Uses polite/impolite peer negotiation with automatic local SDP rollback, eliminating WebRTC offer collisions and audio deadlocks when two users enter a room at the exact same moment.
+- **Intelligent Speaking Debounce**: Filters speaking state updates to emit events only when vocal state changes or volume moves significantly, preventing frame flooding (60–144Hz) and eliminating unnecessary React re-renders.
 - **Settings & Room Toolbar Synchronization**: Audio mode choices persist in `localStorage` (`echowire_nc_mode`) and stay 100% in sync across the voice room toolbar and user settings.
 - **Zero Media Costs ($0 Bills)**: Direct WebRTC P2P mesh completely bypasses centralized media servers.
 
@@ -138,6 +142,16 @@ EchoWire is an open-source, lightweight communication platform designed for high
 - **Grievance Redressal**: Formal Grievance Officer channel (`privacy@echowire.app`) and statutory notice of complaint rights to the **Data Protection Board of India (DPBI)**.
 
 ### 🛡️ Enterprise-Grade Security & Anti-Bot Defense
+- **Strict Origin Whitelisting (No Wildcard CORS)**: Replaced broad subdomain regexes with an explicit origin whitelist (`config.clientOrigin`, `echowire.vercel.app`, and validated localhost origins), preventing cross-origin session theft from arbitrary `echowire-*.vercel.app` domains.
+- **Fail-Safe Production Secret Guard**: Fastify immediately halts on startup in production if `SESSION_SECRET` is missing, default, or under 32 characters.
+- **Dedicated Token Separation (Zero Token Confusion)**: Password reset tokens and email verification tokens use separate columns (`resetToken` vs `verificationToken`), ensuring verification tokens can never be used to reset account passwords.
+- **Google OAuth Pre-Hijack Protection**: If a user signs in with Google using an email that was pre-registered but unverified, any pre-existing password is overwritten with a secure 32-byte randomized token, stopping attackers from accessing the user's account.
+- **Message History Access Control**: Room chat history retrieval strictly verifies active membership in `roomMembers` or room ownership, eliminating IDOR leaks on personal and password-protected rooms.
+- **Explicit WebSocket Eviction API**: When a user leaves or is kicked from a room, `WsGateway.evictUserFromRoom` clears their socket room state and notifies peers, ensuring departed users cannot send chat messages or receive room broadcasts.
+- **Session-Only Token Support**: Supports authentication tokens stored in `sessionStorage` for users signing in without "Remember me", ensuring seamless real-time WebSocket connectivity.
+- **Multipart `FormData` Preservation**: Respects browser-generated multipart boundaries on non-JSON requests, ensuring smooth profile image uploads.
+- **Voice Session Teardown on Room Switch**: Cleanly closes existing WebRTC peer connections and informs the server before joining a new room, preventing ghost audio streams.
+- **Music Pause Elapsed Time Tracking**: When pausing music playback, elapsed playback time is accumulated so tracks resume exactly where they left off rather than restarting from 0:00.
 - **Argon2id Password Hashing**: Memory-hard key derivation to prevent brute-force cracking.
 - **Google Identity Services (GIS)**: Cryptographically verified Google OAuth 2.0.
 - **Zero-Trust Room Access Control**: Client-controlled `viaInvite` bypassed decisions have been eliminated. Access to personal and private channels strictly checks server-side verified invites, database membership, room ownership, or verified password.
