@@ -151,9 +151,10 @@ export async function authRoutes(app: FastifyInstance) {
           .returning();
         existingUser = created;
       } else if (!existingUser.isEmailVerified) {
+        const secureRandomPasswordHash = await AuthService.hashPassword(crypto.randomBytes(32).toString('hex'));
         await db
           .update(users)
-          .set({ isEmailVerified: true, updatedAt: new Date() })
+          .set({ isEmailVerified: true, passwordHash: secureRandomPasswordHash, updatedAt: new Date() })
           .where(eq(users.id, existingUser.id));
       }
 
@@ -442,8 +443,8 @@ export async function authRoutes(app: FastifyInstance) {
         await db
           .update(users)
           .set({
-            verificationToken: resetToken,
-            verificationExpiresAt: resetExpires,
+            resetToken: resetToken,
+            resetExpiresAt: resetExpires,
             updatedAt: new Date(),
           })
           .where(eq(users.id, user.id));
@@ -477,7 +478,7 @@ export async function authRoutes(app: FastifyInstance) {
       const [user] = await db
         .select()
         .from(users)
-        .where(and(eq(users.verificationToken, token), gt(users.verificationExpiresAt, new Date())))
+        .where(and(eq(users.resetToken, token), gt(users.resetExpiresAt, new Date())))
         .limit(1);
 
       if (!user) {
@@ -490,8 +491,8 @@ export async function authRoutes(app: FastifyInstance) {
         .set({
           passwordHash: newHash,
           isEmailVerified: true,
-          verificationToken: null,
-          verificationExpiresAt: null,
+          resetToken: null,
+          resetExpiresAt: null,
           updatedAt: new Date(),
         })
         .where(eq(users.id, user.id));

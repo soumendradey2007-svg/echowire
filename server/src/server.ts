@@ -25,14 +25,13 @@ export async function createServer() {
       if (!origin) return cb(null, true);
       if (
         origin === config.clientOrigin ||
-        origin === 'https://echowire.vercel.app' ||
-        /^https:\/\/echowire(-[a-zA-Z0-9_-]+)?\.vercel\.app$/.test(origin)
+        origin === 'https://echowire.vercel.app'
       ) {
         return cb(null, true);
       }
       try {
         const u = new URL(origin);
-        if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+        if ((u.hostname === 'localhost' || u.hostname === '127.0.0.1') && (u.protocol === 'http:' || u.protocol === 'https:')) {
           return cb(null, true);
         }
       } catch {}

@@ -18,14 +18,14 @@ export async function messageRoutes(app: FastifyInstance) {
       const [room] = await db.select().from(rooms).where(eq(rooms.id, id)).limit(1);
       if (!room) return reply.status(404).send({ error: 'Room not found' });
 
-      if (room.isPrivate && room.ownerId !== auth.user.id) {
+      if (room.ownerId !== auth.user.id) {
         const [membership] = await db
           .select()
           .from(roomMembers)
           .where(and(eq(roomMembers.roomId, id), eq(roomMembers.userId, auth.user.id)))
           .limit(1);
         if (!membership) {
-          return reply.status(403).send({ error: 'Access denied. You are not a member of this private room.' });
+          return reply.status(403).send({ error: 'You must be a member of this room to view messages' });
         }
       }
 

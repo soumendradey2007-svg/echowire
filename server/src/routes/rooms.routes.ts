@@ -374,14 +374,12 @@ export async function roomRoutes(app: FastifyInstance) {
           secure: isProd,
           sameSite: isProd ? 'none' : 'lax',
         });
-        WsGateway.broadcast('room:member_left', { roomId: id, userId: auth.user.id });
-        WsGateway.broadcast('voice:peer_left', { roomId: id, userId: auth.user.id });
+        WsGateway.evictUserFromRoom(auth.user.id, id);
         return { success: true, guestEnded: true };
       }
       await db.delete(roomMembers).where(and(eq(roomMembers.roomId, id), eq(roomMembers.userId, auth.user.id)));
 
-      WsGateway.broadcast('room:member_left', { roomId: id, userId: auth.user.id });
-      WsGateway.broadcast('voice:peer_left', { roomId: id, userId: auth.user.id });
+      WsGateway.evictUserFromRoom(auth.user.id, id);
 
       const [room] = await db.select().from(rooms).where(eq(rooms.id, id)).limit(1);
       const remaining = await db.select().from(roomMembers).where(eq(roomMembers.roomId, id));
@@ -515,17 +513,56 @@ export async function roomRoutes(app: FastifyInstance) {
 
   // POST /api/rooms/invites/:id/decline - Decline/remove invite
   app.post('/api/rooms/invites/:id/decline', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    serverRoomInvites.delete(id);
-    return { success: true };
+    try {
+      const token = AuthService.extractToken(req);
+      if (!token) return reply.status(401).send({ error: 'Not authenticated' });
+      const auth = await AuthService.validateSession(token);
+      if (!auth) return reply.status(401).send({ error: 'Session expired' });
+
+      const { id } = req.params as { id: string };
+      const inv = serverRoomInvites.get(id);
+      if (inv && inv.toUserId === auth.user.id) {
+        serverRoomInvites.delete(id);
+      }
+      return { success: true };
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message || 'Failed to decline invite' });
+    }
   });
 
   // POST /api/rooms/invites/:id/accept - Accept invite
   app.post('/api/rooms/invites/:id/accept', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const inv = serverRoomInvites.get(id);
-    serverRoomInvites.delete(id);
-    return { success: true, roomId: inv?.roomId };
+    try {
+      const token = AuthService.extractToken(req);
+      if (!token) return reply.status(401).send({ error: 'Not authenticated' });
+      const auth = await AuthService.validateSession(token);
+      if (!auth) return reply.status(401).send({ error: 'Session expired' });
+
+      const { id } = req.params as { id: string };
+      const inv = serverRoomInvites.get(id);
+      if (!inv || inv.toUserId !== auth.user.id) {
+        return reply.status(404).send({ error: 'Invite not found or invalid' });
+      }
+
+      const [existing] = await db
+        .select()
+        .from(roomMembers)
+        .where(and(eq(roomMembers.roomId, inv.roomId), eq(roomMembers.userId, auth.user.id)))
+        .limit(1);
+
+      if (!existing) {
+        await db.insert(roomMembers).values({
+          roomId: inv.roomId,
+          userId: auth.user.id,
+          role: 'member',
+        });
+      }
+
+      serverRoomInvites.delete(id);
+      return { success: true, roomId: inv.roomId };
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message || 'Failed to accept invite' });
+    }
   });
 
   // POST /api/rooms/:id/kick - Owner kicks a member from the room
@@ -555,8 +592,7 @@ export async function roomRoutes(app: FastifyInstance) {
       await db.delete(roomMembers).where(and(eq(roomMembers.roomId, id), eq(roomMembers.userId, targetUserId)));
 
       // Notify everyone the member left
-      WsGateway.broadcast('room:member_left', { roomId: id, userId: targetUserId });
-      WsGateway.broadcast('voice:peer_left', { roomId: id, userId: targetUserId });
+      WsGateway.evictUserFromRoom(targetUserId, id);
 
       // Notify the kicked user specifically
       WsGateway.sendToUser(targetUserId, 'room:kicked', {
